@@ -1,14 +1,19 @@
+import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
 
 const app = express();
-const PORT = process.env.PORT ;
+const PORT = process.env.PORT || 5000;
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'https://n8n.namelomax.beget.tech/webhook/api/chat';
 
 app.use(cors());
 app.use(express.json());
 
+// Раздаём статические файлы фронтенда
+app.use(express.static(path.join(__dirname, '../../client/dist')));
+
+// API для чата
 app.post('/api/chat', async (req, res) => {
   try {
     const { message } = req.body;
@@ -32,6 +37,11 @@ app.post('/api/chat', async (req, res) => {
     }
     res.status(500).json({ error: 'Internal server error', details: error.message });
   }
+});
+
+// Любой другой запрос возвращает index.html (для SPA)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../../client/dist/index.html'));
 });
 
 app.listen(PORT, () => {
