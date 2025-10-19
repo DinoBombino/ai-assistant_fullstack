@@ -7,10 +7,12 @@ dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.log
 
-# Vercel
-.vercel
+
 
 # IDE
 .vscode/
 .idea/
+.DS_Store
+*.tsbuildinfo
