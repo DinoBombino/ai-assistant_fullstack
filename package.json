@@ -1,7 +1,8 @@
 {
   "scripts": {
     "start": "cd server && npm run start",
-    "build": "cd client && npm install && npm run build && cd ../server && npm install && npm run build"
+    "build": "cd client && npm install && npm run build && cd ../server && npm install && npm run build",
+    "postinstall": "cd server && npm install"
   },
   "engines": {
     "node": ">=18.20.8"
