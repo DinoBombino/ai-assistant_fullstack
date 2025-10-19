@@ -1,11 +1,7 @@
 {
   "scripts": {
     "start": "cd server && npm run start",
-    "build": "cd client && npm install && npm run build && cd ../server && npm run build"
-  },
-  "dependencies": {
-    "typescript": "~5.2.0",
-    "vite": "^7.1.10"
+    "build": "cd client && npm install && npm run build && cd ../server && npm install && npm run build"
   },
   "engines": {
     "node": ">=18.20.8"
