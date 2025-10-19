@@ -1,7 +1,7 @@
 {
   "scripts": {
     "start": "cd server && npm run start",
-    "build": "cd client && npm install && npm run build && cd ../server && npm run build"
+    "build": "cd client && npm install && npm run build && cd ../server && npm install --include=dev && npm run build"
   },
   "dependencies": {
     "typescript": "~5.2.0",
