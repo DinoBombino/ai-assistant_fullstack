@@ -47,3 +47,22 @@ Server running on port 5000
 
 **Инфраструктура:**  
 - Railway *(пока без Docker'а)*
+
+
+## Установка необходимых зависимостей/библиотек
+# 1. В корне проекта
+```bash
+npm install
+```
+
+# 2. Во фронтенде
+```bash
+cd client
+npm install
+```
+
+# 3. В бэкенде
+```bash
+cd server
+npm install
+```
