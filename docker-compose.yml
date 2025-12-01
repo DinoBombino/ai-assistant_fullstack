@@ -1,0 +1,24 @@
+# docker-compose.yml
+# version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    container_name: ai-assistant-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ai_assistant
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pass123
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command: >
+      postgres 
+      -c log_connections=on 
+      -c log_disconnections=on 
+      -c log_statement=all 
+      -c password_encryption=scram-sha-256
+
+volumes:
+  postgres_data:

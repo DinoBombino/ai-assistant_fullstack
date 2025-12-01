@@ -6,8 +6,41 @@
     "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "typeRoots": [
+      "./node_modules/@types",
+      "./src/types"
+    ]
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules"]
+  "include": [
+    "src/*.ts",
+    "src/types/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }
+// {
+//   "compilerOptions": {
+//     "target": "ES2020",
+//     "module": "commonjs",
+//     "outDir": "./dist",
+//     "rootDir": "./src",
+//     "strict": true,
+//     "esModuleInterop": true,
+//     "skipLibCheck": true,
+//     "forceConsistentCasingInFileNames": true,
+//     "moduleResolution": "node",
+//     "resolveJsonModule": true,
+//     "baseUrl": ".",
+//     "paths": {
+//       "*": ["src/*"]
+//     },
+//     "typeRoots": ["./node_modules/@types", "./src/types"]   // ← ВАЖНО!
+//   },
+//   "include": [
+//     "src/**/*",
+//     "src/types/**/*"                                        // ← И ЭТО!
+//   ],
+//   "exclude": ["node_modules", "dist"]
+// }

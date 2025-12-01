@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import axios from 'axios'
 import { parseMarkdown } from './utils/markdown';
+import { useAuthStore } from './stores/useAuthStore';
+import AuthModal from './components/AuthModal.vue';
 
 interface Message {
   text: string
@@ -11,6 +13,13 @@ interface Message {
 const messages = ref<Message[]>([])
 const userInput = ref('')
 const isLoading = ref(false)
+const auth = useAuthStore();
+const showAuth = ref(false);
+const chatWindow = ref<HTMLDivElement | null>(null);
+
+onMounted(async () => {
+  await auth.loadUser();
+});
 
 const sendMessage = async () => {
   if (!userInput.value.trim()) return
@@ -27,51 +36,76 @@ const sendMessage = async () => {
   } finally {
     isLoading.value = false
     userInput.value = ''
+    await nextTick(() => {
+      if (chatWindow.value) {
+        chatWindow.value.scrollTop = chatWindow.value.scrollHeight;
+      }
+    });
   }
 }
 </script>
 
 <template>
-  <div class="container text-center mt-5">
-    <h1>AI-Assistant</h1>
-    <p>Нажми кнопку, чтобы начать чат с AI-ассистеном.</p>
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#chatModal">
-      Начать чат
-    </button>
-  </div>
+  <div class="container py-5">
+    <div v-if="!auth.user">
+      <h1 class="text-center mb-4">AI Помощник</h1>
+      <div class="text-center">
+        <button class="btn btn-primary btn-lg" @click="showAuth = true">
+          Войти / Зарегистрироваться
+        </button>
+      </div>
+    </div>
 
-  <div class="modal fade" id="chatModal" tabindex="-1" aria-labelledby="chatModalLabel">
-    <div class="modal-dialog modal-dialog-centered modal-xl modal-fullscreen-md-down">
-      <div class="modal-content shadow-lg border-0">
-        <div class="modal-header border-0 pb-2">
-          <h5 class="modal-title fw-bold">Чат с AI-ассистеном</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <div class="chat-window d-flex flex-column">
-            <div v-for="(msg, index) in messages" :key="index"
-              :class="['d-flex', msg.isUser ? 'justify-content-end' : 'justify-content-start']">
-              <div :class="['message-bubble', msg.isUser ? 'user-message' : 'ai-message']" v-if="msg.isUser">
-                {{ msg.text }}
+    <div v-else>
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3>Привет, {{ auth.user.name }}!</h3>
+        <button class="btn btn-outline-danger" @click="auth.logout()">Выйти</button>
+      </div>
+
+      <!-- Кнопка для открытия чата -->
+      <div class="container text-center mt-5">
+        <h1>Micro-Assistant Teacher</h1>
+        <p>Нажми кнопку, чтобы начать чат с AI-учителем.</p>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#chatModal">
+          Начать чат
+        </button>
+      </div>
+
+      <!-- Модалка чата -->
+      <div class="modal fade" id="chatModal" tabindex="-1" aria-labelledby="chatModalLabel">
+        <div class="modal-dialog modal-dialog-centered modal-xl modal-fullscreen-md-down">
+          <div class="modal-content shadow-lg border-0">
+            <div class="modal-header border-0 pb-2">
+              <h5 class="modal-title fw-bold">Чат с AI-учителем</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div ref="chatWindow" class="chat-window d-flex flex-column">
+                <div v-for="(msg, index) in messages" :key="index"
+                  :class="['d-flex', msg.isUser ? 'justify-content-end' : 'justify-content-start']">
+                  <div :class="['message-bubble', msg.isUser ? 'user-message' : 'ai-message']" v-if="msg.isUser">
+                    {{ msg.text }}
+                  </div>
+                  <div v-else class="message-bubble ai-message" v-html="parseMarkdown(msg.text)"></div>
+                </div>
+                <div v-if="isLoading" class="text-center text-muted mt-2">
+                  <div class="spinner-border spinner-border-sm" role="status"></div>
+                  <span class="ms-2">Размышляю...</span>
+                </div>
               </div>
-              <div v-else class="message-bubble ai-message" v-html="parseMarkdown(msg.text)"></div>
+              <div class="input-group">
+                <input v-model="userInput" type="text" class="form-control" placeholder="Задай вопрос..."
+                  @keyup.enter="sendMessage" />
+                <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading">
+                  Отправить
+                </button>
+              </div>
             </div>
-
-            <div v-if="isLoading" class="text-center text-muted mt-2">
-              <div class="spinner-border spinner-border-sm" role="status"></div>
-              <span class="ms-2">Размышляю...</span>
-            </div>
-          </div>
-          <div class="input-group">
-            <input v-model="userInput" type="text" class="form-control" placeholder="Задай вопрос..."
-              @keyup.enter="sendMessage" />
-            <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading">
-              Отправить
-            </button>
           </div>
         </div>
       </div>
     </div>
+    <AuthModal :is-open="showAuth" @close="showAuth = false" />
   </div>
 </template>
 
