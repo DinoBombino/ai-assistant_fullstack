@@ -1,111 +1,58 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
-import axios from 'axios'
-import { parseMarkdown } from './utils/markdown';
+import { onMounted, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { useAuthStore } from './stores/useAuthStore';
-import AuthModal from './components/AuthModal.vue';
 
-interface Message {
-  text: string
-  isUser: boolean
-}
-
-const messages = ref<Message[]>([])
-const userInput = ref('')
-const isLoading = ref(false)
+const router = useRouter();
 const auth = useAuthStore();
-const showAuth = ref(false);
-const chatWindow = ref<HTMLDivElement | null>(null);
 
+// Загружаем пользователя при монтировании
 onMounted(async () => {
-  await auth.loadUser();
+  if (!auth.user && !auth.isUserLoading) {
+    await auth.loadUser();
+  }
 });
 
-const sendMessage = async () => {
-  if (!userInput.value.trim()) return
-
-  messages.value.push({ text: userInput.value, isUser: true })
-  isLoading.value = true
-
+const logout = async () => {
   try {
-    const response = await axios.post('/api/chat', { message: userInput.value })
-    const reply = response.data.reply || 'Нет ответа от AI'
-    messages.value.push({ text: reply, isUser: false })
+    await auth.logout();
+    // После успешного выхода гарантированно переходим на логин
+    router.push('/login');
   } catch (error) {
-    messages.value.push({ text: 'Ошибка: ' + (error as Error).message, isUser: false })
-  } finally {
-    isLoading.value = false
-    userInput.value = ''
-    await nextTick(() => {
-      if (chatWindow.value) {
-        chatWindow.value.scrollTop = chatWindow.value.scrollHeight;
-      }
-    });
+    console.error('Logout error:', error);
+    router.push('/login');
   }
-}
+};
 </script>
 
 <template>
-  <div class="container py-5">
-    <div v-if="!auth.user">
-      <h1 class="text-center mb-4">AI Помощник</h1>
-      <div class="text-center">
-        <button class="btn btn-primary btn-lg" @click="showAuth = true">
-          Войти / Зарегистрироваться
-        </button>
-      </div>
-    </div>
-
-    <div v-else>
-      <div class="d-flex justify-content-between align-items-center mb-4">
-        <h3>Привет, {{ auth.user.name }}!</h3>
-        <button class="btn btn-outline-danger" @click="auth.logout()">Выйти</button>
-      </div>
-
-      <!-- Кнопка для открытия чата -->
-      <div class="container text-center mt-5">
-        <h1>Micro-Assistant Teacher</h1>
-        <p>Нажми кнопку, чтобы начать чат с AI-учителем.</p>
-        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#chatModal">
-          Начать чат
-        </button>
-      </div>
-
-      <!-- Модалка чата -->
-      <div class="modal fade" id="chatModal" tabindex="-1" aria-labelledby="chatModalLabel">
-        <div class="modal-dialog modal-dialog-centered modal-xl modal-fullscreen-md-down">
-          <div class="modal-content shadow-lg border-0">
-            <div class="modal-header border-0 pb-2">
-              <h5 class="modal-title fw-bold">Чат с AI-учителем</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-              <div ref="chatWindow" class="chat-window d-flex flex-column">
-                <div v-for="(msg, index) in messages" :key="index"
-                  :class="['d-flex', msg.isUser ? 'justify-content-end' : 'justify-content-start']">
-                  <div :class="['message-bubble', msg.isUser ? 'user-message' : 'ai-message']" v-if="msg.isUser">
-                    {{ msg.text }}
-                  </div>
-                  <div v-else class="message-bubble ai-message" v-html="parseMarkdown(msg.text)"></div>
-                </div>
-                <div v-if="isLoading" class="text-center text-muted mt-2">
-                  <div class="spinner-border spinner-border-sm" role="status"></div>
-                  <span class="ms-2">Размышляю...</span>
-                </div>
-              </div>
-              <div class="input-group">
-                <input v-model="userInput" type="text" class="form-control" placeholder="Задай вопрос..."
-                  @keyup.enter="sendMessage" />
-                <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading">
-                  Отправить
-                </button>
-              </div>
-            </div>
-          </div>
+  <div id="app">
+    <!-- Навигационная панель (показываем только если пользователь авторизован) -->
+    <nav v-if="auth.user" class="navbar navbar-expand-lg navbar-light bg-light shadow-sm">
+      <div class="container">
+        <router-link class="navbar-brand" to="/">AI Assistant</router-link>
+        
+        <div class="d-flex align-items-center">
+          <span class="me-3">Привет, {{ auth.user.name }}!</span>
+          <router-link v-if="auth.user.role === 'teacher' || auth.user.role === 'admin'" 
+                       to="/admin" class="btn btn-outline-primary me-2">
+            Админка
+          </router-link>
+          <button class="btn btn-outline-danger" @click="logout">Выйти</button>
         </div>
       </div>
+    </nav>
+
+    <div v-if="auth.isLoading && !auth.user" class="loading-overlay">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Загрузка...</span>
+      </div>
     </div>
-    <AuthModal :is-open="showAuth" @close="showAuth = false" />
+
+    <!-- Основное содержимое -->
+    <main>
+      <router-view />
+    </main>
   </div>
 </template>
 

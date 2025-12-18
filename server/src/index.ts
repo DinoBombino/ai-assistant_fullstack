@@ -11,6 +11,7 @@ import axios from 'axios';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth.routes';
 import { connectDB } from './db/postgres';
+import filesRoutes from './routes/files.routes';
 
 
 const app = express();
@@ -27,6 +28,7 @@ app.use(cookieParser());
 
 // API
 app.use('/api/auth', authRoutes);
+app.use('/api/files', filesRoutes);
 // Раздаём статические файлы фронтенда
 app.use(express.static(path.join(__dirname, '../../client/dist')));
 // Любой другой запрос возвращает index.html (для SPA)
@@ -34,6 +36,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../../client/dist/index.html'));
 });
 
+// Для файлов
 
 
 
