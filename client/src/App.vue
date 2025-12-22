@@ -1,33 +1,38 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import axios from 'axios'
-import { parseMarkdown } from './utils/markdown';
+import { parseMarkdown } from './utils/markdown'
+
 
 interface Message {
-  text: string
-  isUser: boolean
+text: string
+isUser: boolean
 }
+
 
 const messages = ref<Message[]>([])
 const userInput = ref('')
 const isLoading = ref(false)
 
+
 const sendMessage = async () => {
-  if (!userInput.value.trim()) return
+if (!userInput.value.trim()) return
 
-  messages.value.push({ text: userInput.value, isUser: true })
-  isLoading.value = true
 
-  try {
-    const response = await axios.post('/api/chat', { message: userInput.value })
-    const reply = response.data.reply || 'Нет ответа от AI'
-    messages.value.push({ text: reply, isUser: false })
-  } catch (error) {
-    messages.value.push({ text: 'Ошибка: ' + (error as Error).message, isUser: false })
-  } finally {
-    isLoading.value = false
-    userInput.value = ''
-  }
+messages.value.push({ text: userInput.value, isUser: true })
+isLoading.value = true
+
+
+try {
+const response = await axios.post('/api/chat', { message: userInput.value })
+const reply = response.data?.reply || 'Нет ответа от AI'
+messages.value.push({ text: reply, isUser: false })
+} catch (error: any) {
+messages.value.push({ text: 'Ошибка: ' + (error?.message ?? String(error)), isUser: false })
+} finally {
+isLoading.value = false
+userInput.value = ''
+}
 }
 </script>
 
