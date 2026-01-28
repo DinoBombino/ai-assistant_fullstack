@@ -1,80 +1,86 @@
- /// <reference path="./types/index.d.ts" />
-
-// import dotenv from 'dotenv';
-// dotenv.config();
+/// <reference path="./types/index.d.ts" />
 import 'dotenv/config'; 
-
 import path from 'path';
 import express from 'express';
 import cors from 'cors';
-import axios from 'axios';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth.routes';
-import { connectDB } from './db/postgres';
 import filesRoutes from './routes/files.routes';
-
+import chatRoutes from './routes/chat'; // изменили импорт
+import bodyParser from "body-parser";
+import { connectDB } from './db/postgres';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'https://n8n.namelomax.beget.tech/webhook/api/chat';
 
+// CORS
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:3000',
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
-// app.use(cors());
-app.use(express.json());
-app.use(cookieParser());
 
-// API
-app.use('/api/auth', authRoutes);
-app.use('/api/files', filesRoutes);
-// Раздаём статические файлы фронтенда
-app.use(express.static(path.join(__dirname, '../../client/dist')));
-// Любой другой запрос возвращает index.html (для SPA)
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../../client/dist/index.html'));
+// Middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cookieParser());
+app.use(bodyParser.json());
+
+// Логирование
+app.use((req, res, next) => {
+  console.log(`[HTTP] ${new Date().toISOString()} ${req.method} ${req.url}`);
+  next();
 });
 
-// Для файлов
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/files', filesRoutes);
+app.use('/api/chat', chatRoutes); // изменили эту строку
 
-
-
-// Подключение к БД
-connectDB().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok',
+    service: 'AI Assistant API',
+    timestamp: new Date().toISOString()
   });
 });
 
-// API для чата
-app.post('/api/chat', async (req, res) => {
-  try {
-    const { message } = req.body;
-    if (!message || typeof message !== 'string' || !message.trim()) {
-      return res.status(400).json({ error: 'Message is required' });
-    }
+// Обслуживание статики фронтенда (если есть)
+if (process.env.NODE_ENV === 'production') {
+  const clientDistPath = path.join(__dirname, '../../client/dist');
+  app.use(express.static(clientDistPath));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(clientDistPath, 'index.html'));
+  });
+}
 
-    const n8nResponse = await axios.post(N8N_WEBHOOK_URL, {
-      message: message.trim()
-    }, {
-      timeout: 30000,
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-    const reply = n8nResponse.data?.contents?.[0]?.parts?.[0]?.reply || 'Нет ответа от AI';
-    res.json({ success: true, reply, timestamp: new Date().toISOString() });
-  } catch (error: any) {
-    console.error('Chat API error:', error);
-    if (error.code === 'ECONNABORTED') {
-      return res.status(408).json({ error: 'AI timeout' });
-    }
-    res.status(500).json({ error: 'Internal server error', details: error.message });
-  }
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Endpoint not found' });
 });
 
+// Error handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ 
+    error: 'Internal server error',
+    ...(process.env.NODE_ENV === 'development' && { details: err.message })
+  });
+});
 
-
-// app.listen(PORT, () => {
-//   console.log(`Server running on port ${PORT}`);
-// });
+// Запуск сервера
+connectDB().then((success) => {
+  if (success) {
+    app.listen(PORT, () => {
+      console.log(`✅ Server running on port ${PORT}`);
+      console.log(`📊 AI Provider: ${process.env.AI_PROVIDER || 'openrouter'}`);
+      console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+      console.log(`🤖 Chat API: http://localhost:${PORT}/api/chat`);
+    });
+  } else {
+    console.error('❌ Failed to connect to database. Exiting...');
+    process.exit(1);
+  }
+});

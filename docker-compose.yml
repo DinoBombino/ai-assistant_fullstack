@@ -8,10 +8,11 @@ services:
     environment:
       POSTGRES_DB: ai_assistant
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: pass123
+      POSTGRES_PASSWORD: postgres
     ports:
       - "5433:5432"
     volumes:
+      - ./server/database:/docker-entrypoint-initdb.d:ro
       - postgres_data:/var/lib/postgresql/data
     command: >
       postgres 

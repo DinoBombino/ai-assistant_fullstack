@@ -4,7 +4,10 @@
   "scripts": {
     "start": "node dist/index.js",
     "build": "npx tsc",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "init-db": "ts-node src/db/init.ts",
+    "type-check": "tsc --noEmit",
+    "check-db": "ts-node src/db/check-tables.ts"
   },
   "dependencies": {
     "@types/cors": "^2.8.17",
