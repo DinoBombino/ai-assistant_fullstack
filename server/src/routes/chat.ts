@@ -140,7 +140,7 @@ router.delete('/sessions/:sessionId', authMiddleware, async (req: Request, res: 
 });
 
 // Основной эндпоинт для чата
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { sessionId, message, model, maxTokens, temperature, role }: ChatRequest = req.body;
     
@@ -148,18 +148,8 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    // Получаем userId из запроса (если есть) или используем тестового пользователя
-    let userId = req.user?.id;
-    if (!userId) {
-      // Для тестирования без авторизации - используем тестового пользователя
-      // Проверим, есть ли пользователь с id=1
-      const testUserCheck = await chatQueries.checkTestUserExists();
-      if (!testUserCheck) {
-        // Создаем тестового пользователя если его нет
-        await chatQueries.createTestUser();
-      }
-      userId = 1; // ID тестового пользователя
-    }
+    // Получаем userId из авторизованного запроса
+    const userId = req.user!.id;
 
     let actualSessionId: number;
 
@@ -232,13 +222,19 @@ router.post('/', async (req: Request, res: Response) => {
       aiResponse.tokens
     );
 
-    // Обновляем время сессии
+    // Обновляем время сессии и, при необходимости, заголовок
     const latestMessages = await chatQueries.getSessionMessages(actualSessionId, 1);
     if (latestMessages.length > 0) {
-      await chatQueries.updateSessionTitle(
-        actualSessionId, 
-        latestMessages[0]?.content.substring(0, 100) || 'Chat'
-      );
+      // Получаем текущую сессию, чтобы понять, можно ли автообновлять заголовок
+      const session = await chatQueries.getSessionById(actualSessionId);
+
+      // Автообновляем title только для дефолтных чатов
+      if (session && (session.title === 'Новый чат' || session.title === 'New Chat')) {
+        await chatQueries.updateSessionTitle(
+          actualSessionId,
+          latestMessages[0]?.content.substring(0, 100) || 'Chat'
+        );
+      }
     }
 
     res.json({

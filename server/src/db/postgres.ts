@@ -99,32 +99,6 @@ async function initChatTables() {
 
 // Функции для работы с чатом
 export const chatQueries = {
-  checkTestUserExists: async () => {
-  const result = await pool.query(
-    'SELECT id FROM users WHERE id = 1'
-  );
-  return result.rows.length > 0;
-},
-
-// Создать тестового пользователя
-createTestUser: async () => {
-  try {
-    const result = await pool.query(`
-      INSERT INTO users (id, email, password, name, role) 
-      VALUES (
-        1, 
-        'test@test.com', 
-        '$2b$10$6kCIJ3m6c/1fqK7v4Q5g/.K5JZ9L8M2N1P3Q4R5S6T7U8V9W0X1Y2Z3', 
-        'Test User', 
-        'student'
-      ) ON CONFLICT (id) DO NOTHING RETURNING id
-    `);
-    return result.rows[0];
-  } catch (error) {
-    console.error('Error creating test user:', error);
-    return null;
-  }
-},
   // Создать новую сессию
   createSession: async (userId: number, title: string = 'New Chat') => {
     const result = await pool.query(
@@ -146,6 +120,17 @@ createTestUser: async () => {
       [userId]
     );
     return result.rows;
+  },
+
+  // Получить одну сессию по id
+  getSessionById: async (sessionId: number) => {
+    const result = await pool.query(
+      `SELECT id, user_id, title, created_at, updated_at 
+       FROM chat_sessions 
+       WHERE id = $1`,
+      [sessionId]
+    );
+    return result.rows[0] || null;
   },
 
   // Получить историю сообщений сессии

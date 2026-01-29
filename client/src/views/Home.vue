@@ -1,87 +1,191 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
-import axios from 'axios'
+import { ref, onMounted, nextTick, computed } from 'vue'
 import { parseMarkdown } from '../utils/markdown';
 import { useAuthStore } from '../stores/useAuthStore';
+import { useChatStore } from '../stores/useChatStore';
 
-interface Message {
-  text: string
-  isUser: boolean
-}
-
-const messages = ref<Message[]>([])
 const userInput = ref('')
-const isLoading = ref(false)
 const auth = useAuthStore();
-const showAuth = ref(false);
+const chat = useChatStore();
 const chatWindow = ref<HTMLDivElement | null>(null);
+
+const isLoading = computed(() => chat.sending || chat.loadingMessages);
+const sessions = computed(() => chat.sessions);
+const activeSessionId = computed(() => chat.activeSessionId);
+
+// Сообщения для UI: приводим к формату { text, isUser }
+const uiMessages = computed(() =>
+  chat.messages.map(msg => ({
+    text: msg.content,
+    isUser: msg.role === 'user'
+  }))
+);
 
 onMounted(async () => {
   await auth.loadUser();
+  if (auth.user) {
+    await chat.fetchSessions();
+  }
 });
 
-const sendMessage = async () => {
-  if (!userInput.value.trim()) return
+const ensureActiveSession = async () => {
+  if (!chat.activeSessionId) {
+    // Создаём новый чат по умолчанию
+    await chat.createSession('Новый чат');
+  }
+};
 
-  messages.value.push({ text: userInput.value, isUser: true })
-  isLoading.value = true
+const sendMessage = async () => {
+  if (!userInput.value.trim()) return;
 
   try {
-    const response = await axios.post('/api/chat', { message: userInput.value })
-    const reply = response.data.reply || 'Нет ответа от AI'
-    messages.value.push({ text: reply, isUser: false })
+    await ensureActiveSession();
+    await chat.sendMessage(userInput.value);
   } catch (error) {
-    messages.value.push({ text: 'Ошибка: ' + (error as Error).message, isUser: false })
+    console.error('Send message error:', error);
   } finally {
-    isLoading.value = false
-    userInput.value = ''
+    userInput.value = '';
     await nextTick(() => {
       if (chatWindow.value) {
         chatWindow.value.scrollTop = chatWindow.value.scrollHeight;
       }
     });
   }
-}
+};
+
+const selectSession = async (sessionId: number) => {
+  await chat.fetchMessages(sessionId);
+};
+
+const createChat = async () => {
+  const title = window.prompt('Введите название нового чата', 'Новый чат');
+  if (!title || !title.trim()) return;
+  await chat.createSession(title.trim());
+};
+
+const renameChat = async (sessionId: number, currentTitle: string) => {
+  const title = window.prompt('Новое название чата', currentTitle);
+  if (!title || !title.trim()) return;
+  await chat.renameSession(sessionId, title.trim());
+};
+
+const deleteChat = async (sessionId: number) => {
+  const confirmed = window.confirm('Удалить этот чат? Его история будет потеряна.');
+  if (!confirmed) return;
+  await chat.deleteSession(sessionId);
+};
 </script>
 
 <template>
   <div>
-    <div class="text-center mb-5">
-      <h1>Ваш ИИ-помощник</h1>
-      <p>Нажми кнопку, чтобы начать чат .</p>
-      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#chatModal">
-        Начать чат
-      </button>
-    </div>
-
-    <!-- Модалка чата (перенесена из App.vue) -->
-    <div class="modal fade" id="chatModal" tabindex="-1" aria-labelledby="chatModalLabel">
-      <div class="modal-dialog modal-dialog-centered modal-xl modal-fullscreen-md-down">
-        <div class="modal-content shadow-lg border-0">
-          <div class="modal-header border-0 pb-2">
-            <h5 class="modal-title fw-bold">Чат</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    <div class="container">
+      <div class="row">
+        <!-- Левая часть: заголовок и список чатов -->
+        <div class="col-lg-4 mb-4">
+          <div class="text-center mb-4">
+            <h1>Ваш ИИ-помощник</h1>
+            <p>Выберите чат или создайте новый.</p>
           </div>
-          <div class="modal-body">
-            <div ref="chatWindow" class="chat-window d-flex flex-column">
-              <div v-for="(msg, index) in messages" :key="index"
-                :class="['d-flex', msg.isUser ? 'justify-content-end' : 'justify-content-start']">
-                <div :class="['message-bubble', msg.isUser ? 'user-message' : 'ai-message']" v-if="msg.isUser">
-                  {{ msg.text }}
-                </div>
-                <div v-else class="message-bubble ai-message" v-html="parseMarkdown(msg.text)"></div>
-              </div>
-              <div v-if="isLoading" class="text-center text-muted mt-2">
-                <div class="spinner-border spinner-border-sm" role="status"></div>
-                <span class="ms-2">Размышляю...</span>
-              </div>
-            </div>
-            <div class="input-group">
-              <input v-model="userInput" type="text" class="form-control" placeholder="Задай вопрос..."
-                @keyup.enter="sendMessage" />
-              <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading">
-                Отправить
+
+          <div v-if="auth.user" class="chat-sessions">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h5 class="mb-0">Мои чаты</h5>
+              <button class="btn btn-sm btn-outline-primary" @click="createChat">
+                Новый чат
               </button>
+            </div>
+
+            <div v-if="sessions.length === 0" class="text-muted small">
+              Пока нет чатов. Создайте первый.
+            </div>
+
+            <ul v-else class="list-group small">
+              <li v-for="session in sessions"
+                  :key="session.id"
+                  class="list-group-item d-flex justify-content-between align-items-center"
+                  :class="{ active: session.id === activeSessionId }"
+                  @click="selectSession(session.id)">
+                <div class="me-2 text-truncate">
+                  {{ session.title }}
+                </div>
+                <div class="btn-group btn-group-sm">
+                  <button
+                    class="btn btn-outline-secondary"
+                    @click.stop="renameChat(session.id, session.title)"
+                    title="Переименовать"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    class="btn btn-outline-danger"
+                    @click.stop="deleteChat(session.id)"
+                    title="Удалить"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Правая часть: окно чата -->
+        <div class="col-lg-8">
+          <div class="card shadow border-0">
+            <div class="card-body">
+              <h5 class="card-title mb-3">
+                Чат
+                <span v-if="chat.activeSession" class="text-muted ms-2">
+                  ({{ chat.activeSession.title }})
+                </span>
+              </h5>
+
+              <div v-if="!auth.user" class="text-muted">
+                Для чата необходимо войти в систему.
+              </div>
+              <div v-else>
+                <div ref="chatWindow" class="chat-window d-flex flex-column mb-3">
+                  <div
+                    v-for="(msg, index) in uiMessages"
+                    :key="index"
+                    :class="['d-flex', msg.isUser ? 'justify-content-end' : 'justify-content-start']"
+                  >
+                    <div
+                      :class="['message-bubble', msg.isUser ? 'user-message' : 'ai-message']"
+                      v-if="msg.isUser"
+                    >
+                      {{ msg.text }}
+                    </div>
+                    <div
+                      v-else
+                      class="message-bubble ai-message"
+                      v-html="parseMarkdown(msg.text)"
+                    ></div>
+                  </div>
+                  <div v-if="isLoading" class="text-center text-muted mt-2">
+                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                    <span class="ms-2">Размышляю...</span>
+                  </div>
+                </div>
+
+                <div class="input-group">
+                  <input
+                    v-model="userInput"
+                    type="text"
+                    class="form-control"
+                    placeholder="Задай вопрос..."
+                    @keyup.enter="sendMessage"
+                    :disabled="!auth.user"
+                  />
+                  <button
+                    class="btn btn-primary"
+                    @click="sendMessage"
+                    :disabled="isLoading || !auth.user"
+                  >
+                    Отправить
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -252,5 +356,11 @@ const sendMessage = async () => {
   border: none;
   padding: 0.75rem 1.5rem;
   font-weight: 500;
+}
+
+.chat-sessions .list-group-item.active {
+  background-color: #0d6efd;
+  border-color: #0d6efd;
+  color: #fff;
 }
 </style>

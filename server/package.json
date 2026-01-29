@@ -10,8 +10,13 @@
     "check-db": "ts-node src/db/check-tables.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.29",
+    "@ai-sdk/fireworks": "^2.0.23",
+    "@ai-sdk/google": "^3.0.16",
+    "@ai-sdk/openai": "^3.0.21",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
+    "ai": "^6.0.59",
     "axios": "^1.7.7",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
