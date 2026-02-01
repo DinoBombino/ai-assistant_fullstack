@@ -4,10 +4,18 @@ import { parseMarkdown } from '../utils/markdown';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useChatStore } from '../stores/useChatStore';
 
+// Состояния для inline-редактирования
+const isCreatingChat = ref(false)
+const newChatTitle = ref('')
+const editingSessionId = ref<number | null>(null)
+const editingSessionTitle = ref('')
+
 const userInput = ref('')
 const auth = useAuthStore();
 const chat = useChatStore();
 const chatWindow = ref<HTMLDivElement | null>(null);
+const chatWindowModal = ref<HTMLDivElement | null>(null);
+const showFullscreenModal = ref(false);
 
 const isLoading = computed(() => chat.sending || chat.loadingMessages);
 const sessions = computed(() => chat.sessions);
@@ -46,27 +54,22 @@ const sendMessage = async () => {
   } finally {
     userInput.value = '';
     await nextTick(() => {
-      if (chatWindow.value) {
-        chatWindow.value.scrollTop = chatWindow.value.scrollHeight;
-      }
+      const target = showFullscreenModal.value ? chatWindowModal.value : chatWindow.value;
+      if (target) target.scrollTop = target.scrollHeight;
     });
   }
 };
 
+const openFullscreen = () => {
+  showFullscreenModal.value = true;
+};
+
+const closeFullscreen = () => {
+  showFullscreenModal.value = false;
+};
+
 const selectSession = async (sessionId: number) => {
   await chat.fetchMessages(sessionId);
-};
-
-const createChat = async () => {
-  const title = window.prompt('Введите название нового чата', 'Новый чат');
-  if (!title || !title.trim()) return;
-  await chat.createSession(title.trim());
-};
-
-const renameChat = async (sessionId: number, currentTitle: string) => {
-  const title = window.prompt('Новое название чата', currentTitle);
-  if (!title || !title.trim()) return;
-  await chat.renameSession(sessionId, title.trim());
 };
 
 const deleteChat = async (sessionId: number) => {
@@ -74,6 +77,56 @@ const deleteChat = async (sessionId: number) => {
   if (!confirmed) return;
   await chat.deleteSession(sessionId);
 };
+
+///
+// Создание чата через inline-форму
+const startCreatingChat = () => {
+  isCreatingChat.value = true;
+  newChatTitle.value = 'Новый чат';
+};
+const createChat = async () => {
+  if (!newChatTitle.value.trim()) {
+    isCreatingChat.value = false;
+    return;
+  }
+  
+  try {
+    await chat.createSession(newChatTitle.value.trim());
+  } finally {
+    isCreatingChat.value = false;
+    newChatTitle.value = '';
+  }
+};
+
+const cancelCreateChat = () => {
+  isCreatingChat.value = false;
+  newChatTitle.value = '';
+};
+
+// Переименование через inline-форму
+const startRenamingChat = (sessionId: number, currentTitle: string) => {
+  editingSessionId.value = sessionId;
+  editingSessionTitle.value = currentTitle;
+};
+const renameChat = async () => {
+  if (!editingSessionId.value || !editingSessionTitle.value.trim()) {
+    editingSessionId.value = null;
+    return;
+  }
+  
+  try {
+    await chat.renameSession(editingSessionId.value, editingSessionTitle.value.trim());
+  } finally {
+    editingSessionId.value = null;
+    editingSessionTitle.value = '';
+  }
+};
+
+const cancelRenameChat = () => {
+  editingSessionId.value = null;
+  editingSessionTitle.value = '';
+};
+///
 </script>
 
 <template>
@@ -90,39 +143,82 @@ const deleteChat = async (sessionId: number) => {
           <div v-if="auth.user" class="chat-sessions">
             <div class="d-flex justify-content-between align-items-center mb-2">
               <h5 class="mb-0">Мои чаты</h5>
-              <button class="btn btn-sm btn-outline-primary" @click="createChat">
+              <button 
+                v-if="!isCreatingChat" 
+                class="btn btn-sm btn-outline-primary" 
+                @click="startCreatingChat"
+              >
                 Новый чат
               </button>
             </div>
 
-            <div v-if="sessions.length === 0" class="text-muted small">
+            <!-- Форма создания чата -->
+            <div v-if="isCreatingChat" class="create-chat-form mb-3 p-3 bg-light rounded">
+              <div class="mb-2">
+                <input
+                  v-model="newChatTitle"
+                  type="text"
+                  class="form-control form-control-sm"
+                  placeholder="Название чата"
+                  @keyup.enter="createChat"
+                  @keyup.esc="cancelCreateChat"
+                  ref="createInput"
+                />
+              </div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-primary" @click="createChat">Создать</button>
+                <button class="btn btn-sm btn-outline-secondary" @click="cancelCreateChat">Отмена</button>
+              </div>
+            </div>
+
+            <div v-if="sessions.length === 0 && !isCreatingChat" class="text-muted small">
               Пока нет чатов. Создайте первый.
             </div>
 
             <ul v-else class="list-group small">
               <li v-for="session in sessions"
                   :key="session.id"
-                  class="list-group-item d-flex justify-content-between align-items-center"
+                  class="list-group-item"
                   :class="{ active: session.id === activeSessionId }"
-                  @click="selectSession(session.id)">
-                <div class="me-2 text-truncate">
-                  {{ session.title }}
+                  @click="editingSessionId !== session.id && selectSession(session.id)">
+                <!-- Режим редактирования -->
+                <div v-if="editingSessionId === session.id" class="rename-form">
+                  <input
+                    v-model="editingSessionTitle"
+                    type="text"
+                    class="form-control form-control-sm mb-2"
+                    @keyup.enter="renameChat"
+                    @keyup.esc="cancelRenameChat"
+                    @blur="renameChat"
+                    ref="renameInput"
+                  />
+                  <div class="d-flex gap-1">
+                    <button class="btn btn-sm btn-success" @click.stop="renameChat">Сохранить</button>
+                    <button class="btn btn-sm btn-outline-secondary" @click.stop="cancelRenameChat">Отмена</button>
+                  </div>
                 </div>
-                <div class="btn-group btn-group-sm">
-                  <button
-                    class="btn btn-outline-secondary"
-                    @click.stop="renameChat(session.id, session.title)"
-                    title="Переименовать"
-                  >
-                    ✏️
-                  </button>
-                  <button
-                    class="btn btn-outline-danger"
-                    @click.stop="deleteChat(session.id)"
-                    title="Удалить"
-                  >
-                    🗑️
-                  </button>
+                
+                <!-- Обычный режим отображения -->
+                <div v-else class="d-flex justify-content-between align-items-center">
+                  <div class="me-2 text-truncate flex-grow-1" @click.stop="selectSession(session.id)">
+                    {{ session.title }}
+                  </div>
+                  <div class="btn-group btn-group-sm">
+                    <button
+                      class="btn btn-outline-secondary"
+                      @click.stop="startRenamingChat(session.id, session.title)"
+                      title="Переименовать"
+                    >
+                      <i class="bi bi-pencil"></i>
+                    </button>
+                    <button
+                      class="btn btn-outline-danger"
+                      @click.stop="deleteChat(session.id)"
+                      title="Удалить"
+                    >
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </div>
                 </div>
               </li>
             </ul>
@@ -133,11 +229,21 @@ const deleteChat = async (sessionId: number) => {
         <div class="col-lg-8">
           <div class="card shadow border-0">
             <div class="card-body">
-              <h5 class="card-title mb-3">
-                Чат
-                <span v-if="chat.activeSession" class="text-muted ms-2">
-                  ({{ chat.activeSession.title }})
+              <h5 class="card-title mb-3 d-flex align-items-center justify-content-between">
+                <span>
+                  Чат
+                  <span v-if="chat.activeSession" class="text-muted ms-2">
+                    ({{ chat.activeSession.title }})
+                  </span>
                 </span>
+                <button
+                  v-if="auth.user && chat.activeSessionId"
+                  class="btn btn-sm btn-outline-secondary"
+                  @click="openFullscreen"
+                  title="Во весь экран"
+                >
+                  ⛶
+                </button>
               </h5>
 
               <div v-if="!auth.user" class="text-muted">
@@ -191,12 +297,77 @@ const deleteChat = async (sessionId: number) => {
         </div>
       </div>
     </div>
+
+    <div
+      class="modal fade"
+      :class="{ show: showFullscreenModal }"
+      :style="{ display: showFullscreenModal ? 'block' : 'none' }"
+      tabindex="-1"
+      aria-modal="true"
+    >
+      <div class="modal-dialog modal-fullscreen">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              Чат
+              <span v-if="chat.activeSession" class="text-muted ms-2">
+                ({{ chat.activeSession.title }})
+              </span>
+            </h5>
+            <button type="button" class="btn-close" @click="closeFullscreen" aria-label="Закрыть"></button>
+          </div>
+          <div class="modal-body d-flex flex-column" v-if="auth.user">
+            <div ref="chatWindowModal" class="chat-window chat-window-fullscreen d-flex flex-column flex-grow-1 mb-3">
+              <div
+                v-for="(msg, index) in uiMessages"
+                :key="index"
+                :class="['d-flex', msg.isUser ? 'justify-content-end' : 'justify-content-start']"
+              >
+                <div
+                  :class="['message-bubble', msg.isUser ? 'user-message' : 'ai-message']"
+                  v-if="msg.isUser"
+                >
+                  {{ msg.text }}
+                </div>
+                <div
+                  v-else
+                  class="message-bubble ai-message"
+                  v-html="parseMarkdown(msg.text)"
+                ></div>
+              </div>
+              <div v-if="isLoading" class="text-center text-muted mt-2">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+                <span class="ms-2">Размышляю...</span>
+              </div>
+            </div>
+            <div class="input-group mt-auto">
+              <input
+                v-model="userInput"
+                type="text"
+                class="form-control"
+                placeholder="Задай вопрос..."
+                @keyup.enter="sendMessage"
+              />
+              <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading">
+                Отправить
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop fade" :class="{ show: showFullscreenModal }" v-if="showFullscreenModal" @click="closeFullscreen"></div>
   </div>
 </template>
 
 <style scoped>
+.chat-window-fullscreen {
+  height: calc(100vh - 180px);
+  min-height: 300px;
+  max-height: none;
+}
+
 .chat-window {
-  /* background-color: #f8f9fa; */
   height: 60vh;
   /* Было 300px → теперь 60% высоты экрана */
   min-height: 400px;
@@ -363,4 +534,28 @@ const deleteChat = async (sessionId: number) => {
   border-color: #0d6efd;
   color: #fff;
 }
+
+/* Стили для форм inline-редактирования */
+.create-chat-form {
+  border: 1px solid #dee2e6;
+}
+
+.rename-form {
+  padding: 0.5rem;
+  background: white;
+  border-radius: 4px;
+}
+
+.list-group-item {
+  transition: background-color 0.2s;
+}
+
+.list-group-item:hover {
+  background-color: #f8f9fa;
+}
+
+.list-group-item.active:hover {
+  background-color: #0d6efd;
+}
+/**/ 
 </style>

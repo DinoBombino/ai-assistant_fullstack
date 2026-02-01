@@ -223,17 +223,15 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     );
 
     // Обновляем время сессии и, при необходимости, заголовок
+    let updatedSessionTitle: string | undefined;
     const latestMessages = await chatQueries.getSessionMessages(actualSessionId, 1);
     if (latestMessages.length > 0) {
-      // Получаем текущую сессию, чтобы понять, можно ли автообновлять заголовок
       const session = await chatQueries.getSessionById(actualSessionId);
 
-      // Автообновляем title только для дефолтных чатов
       if (session && (session.title === 'Новый чат' || session.title === 'New Chat')) {
-        await chatQueries.updateSessionTitle(
-          actualSessionId,
-          latestMessages[0]?.content.substring(0, 100) || 'Chat'
-        );
+        const newTitle = latestMessages[0]?.content.substring(0, 100) || 'Chat';
+        const updated = await chatQueries.updateSessionTitle(actualSessionId, newTitle);
+        updatedSessionTitle = updated?.title;
       }
     }
 
@@ -244,7 +242,8 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       provider: aiResponse.provider,
       tokens: aiResponse.tokens,
       finishReason: aiResponse.finishReason,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      ...(updatedSessionTitle && { sessionTitle: updatedSessionTitle }),
     });
 
   } catch (error: any) {

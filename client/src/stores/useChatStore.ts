@@ -84,6 +84,12 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
+    updateSessionTitleLocally(sessionId: number, title: string) {
+      this.sessions = this.sessions.map((s) =>
+        s.id === sessionId ? { ...s, title } : s
+      );
+    },
+
     async renameSession(sessionId: number, title: string) {
       try {
         const res = await axios.patch(
@@ -181,6 +187,12 @@ export const useChatStore = defineStore('chat', {
           tokens: res.data.tokens ?? null,
         };
         this.messages.push(replyMessage);
+
+        // Обновляем заголовок чата без перезагрузки, если бэкенд его изменил
+        const sessionTitle = res.data.sessionTitle;
+        if (sessionTitle && this.activeSessionId) {
+          this.updateSessionTitleLocally(this.activeSessionId, sessionTitle);
+        }
 
         return replyText;
       } catch (error) {
