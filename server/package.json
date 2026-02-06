@@ -4,23 +4,39 @@
   "scripts": {
     "start": "node dist/index.js",
     "build": "npx tsc",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "init-db": "ts-node src/db/init.ts",
+    "type-check": "tsc --noEmit",
+    "check-db": "ts-node src/db/check-tables.ts"
   },
   "dependencies": {
-    "@openrouter/ai-sdk-provider": "^1.2.0",
+    "@ai-sdk/anthropic": "^3.0.29",
+    "@ai-sdk/fireworks": "^2.0.23",
+    "@ai-sdk/google": "^3.0.16",
+    "@ai-sdk/openai": "^3.0.21",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
-    "@types/node": "^20.0.0",
+    "ai": "^6.0.59",
     "axios": "^1.7.7",
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
+    "pg": "^8.16.3",
     "typescript": "~5.2.0"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
-    "@types/node": "^20.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^20.19.24",
+    "@types/pg": "^8.15.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.2.0"
   }
