@@ -2,6 +2,12 @@
 import 'dotenv/config'; 
 import { Pool } from 'pg';
 
+const DEFAULT_ADMIN_EMAIL = process.env.DEFAULT_ADMIN_EMAIL || 'admin@test.com';
+const DEFAULT_ADMIN_NAME = process.env.DEFAULT_ADMIN_NAME || 'Admin';
+const DEFAULT_ADMIN_ROLE = process.env.DEFAULT_ADMIN_ROLE || 'teacher';
+// Пароль по умолчанию: Admin12345!
+const DEFAULT_ADMIN_PASSWORD_HASH = process.env.DEFAULT_ADMIN_PASSWORD_HASH || '$2b$10$rdlPVq63VSpODPb/fosv3e2XNDEYlhTePck2TkxkMsTUAilwqEMvG';
+
 console.log('DATABASE_URL:', process.env.DATABASE_URL ? '✓ Set' : '✗ Missing');
 console.log('NODE_ENV:', process.env.NODE_ENV || 'Not set');
 
@@ -89,12 +95,32 @@ async function initChatTables() {
     `);
     
     console.log('✅ Индексы созданы/проверены');
+
+    await ensureDefaultAdmin(client);
+    console.log(`✅ Дефолтный админ проверен: ${DEFAULT_ADMIN_EMAIL}`);
     
   } catch (error: any) {
     console.error('❌ Ошибка создания таблиц чата:', error.message);
   } finally {
     client.release();
   }
+}
+
+async function ensureDefaultAdmin(client: any) {
+  await client.query(
+    `INSERT INTO users (email, password, name, role)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (email) DO UPDATE
+       SET password = EXCLUDED.password,
+           name = EXCLUDED.name,
+           role = EXCLUDED.role`,
+    [
+      DEFAULT_ADMIN_EMAIL,
+      DEFAULT_ADMIN_PASSWORD_HASH,
+      DEFAULT_ADMIN_NAME,
+      DEFAULT_ADMIN_ROLE,
+    ]
+  );
 }
 
 // Функции для работы с чатом
@@ -136,11 +162,15 @@ export const chatQueries = {
   // Получить историю сообщений сессии
   getSessionMessages: async (sessionId: number, limit: number = 20) => {
     const result = await pool.query(
-      `SELECT id, role, content, tokens, created_at 
-       FROM chat_messages 
-       WHERE session_id = $1 
-       ORDER BY created_at ASC 
-       LIMIT $2`,
+      `SELECT id, role, content, tokens, created_at
+       FROM (
+         SELECT id, role, content, tokens, created_at
+         FROM chat_messages
+         WHERE session_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2
+       ) recent_messages
+       ORDER BY created_at ASC`,
       [sessionId, limit]
     );
     return result.rows;

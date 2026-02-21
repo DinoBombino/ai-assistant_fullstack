@@ -49,5 +49,5 @@ CREATE INDEX IF NOT EXISTS idx_files_user_id ON files(user_id);
 
 -- Тестовый пользователь (опционально)
 INSERT INTO users (email, password, name, role)   
-VALUES ('admin@test.com', '$2b$10$6kCIJ3m6c/1fqK7v4Q5g/.K5JZ9L8M2N1P3Q4R5S6T7U8V9W0X1Y2Z3', 'Admin', 'teacher')
+VALUES ('admin@test.com', '$2b$10$rdlPVq63VSpODPb/fosv3e2XNDEYlhTePck2TkxkMsTUAilwqEMvG', 'Admin', 'teacher')
 ON CONFLICT (email) DO NOTHING;

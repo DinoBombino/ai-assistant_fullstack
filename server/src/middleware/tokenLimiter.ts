@@ -4,14 +4,15 @@
 
 import { Request, Response, NextFunction } from 'express';
 
-const DEFAULT_MAX_TOKENS = Number(process.env.DEFAULT_MAX_TOKENS) || 512;
-const MAX_ALLOWED_TOKENS = Number(process.env.MAX_ALLOWED_TOKENS) || 8000;
+const DEFAULT_MAX_TOKENS = Number(process.env.DEFAULT_MAX_TOKENS) || 1024;
+const MAX_ALLOWED_TOKENS = Number(process.env.MAX_ALLOWED_TOKENS) || 12000;
 const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'openai/gpt-4o-mini';
 
 // Known model context sizes (conservative estimates)
 const MODEL_MAX_CONTEXT: Record<string, number> = {
-  'openai/gpt-4o-mini': 8192,
-  'openai/gpt-4o': 32768,
+  'openai/gpt-4o-mini': 128000,
+  'openai/gpt-4o': 128000,
+  'deepseek/deepseek-r1-0528:free': 64000,
   // other models default to server cap if unknown
 };
 

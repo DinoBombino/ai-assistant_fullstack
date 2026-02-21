@@ -3,6 +3,8 @@ import { Router, Request, Response } from 'express';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { chatQueries } from '../db/postgres';
 import { aiService } from '../services/ai.service';
+import { tokenLimiter } from '../middleware/tokenLimiter';
+import { buildDockSystemInstruction, getDockContextForUser } from '../services/dock.service';
 
 const router = Router();
 
@@ -140,7 +142,7 @@ router.delete('/sessions/:sessionId', authMiddleware, async (req: Request, res: 
 });
 
 // Основной эндпоинт для чата
-router.post('/', authMiddleware, async (req: Request, res: Response) => {
+router.post('/', authMiddleware, tokenLimiter(), async (req: Request, res: Response) => {
   try {
     const { sessionId, message, model, maxTokens, temperature, role }: ChatRequest = req.body;
     
@@ -190,13 +192,24 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       mode
     });
 
+    const userHistory = history
+      .filter((msg: any) => msg.role === 'user')
+      .map((msg: any) => msg.content)
+      .join('\n');
+
+    const dockContext = await getDockContextForUser(userId, userHistory);
+    const dockInstruction = buildDockSystemInstruction(dockContext);
+    const mergedSystemPrompt = dockInstruction
+      ? `${systemPrompt}\n\n${dockInstruction}`
+      : systemPrompt;
+
     console.log('История сообщений для сессии', actualSessionId, ':', history.length, 'сообщений');
     
     // Подготавливаем сообщения для AI
     const aiMessages = [
       {
         role: 'system' as const,
-        content: systemPrompt
+        content: mergedSystemPrompt
       },
       ...history.map((msg: any) => ({
         role: msg.role as 'user' | 'assistant' | 'system',
@@ -209,9 +222,9 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     // Получаем ответ от AI
     const aiResponse = await aiService.chat(aiMessages, {
       model,
-      maxTokens: maxTokens || parseInt(process.env.DEFAULT_MAX_TOKENS || '512'),
+      maxTokens: maxTokens || parseInt(process.env.DEFAULT_MAX_TOKENS || '1024'),
       temperature,
-      systemPrompt
+      systemPrompt: mergedSystemPrompt
     });
 
     // Сохраняем ответ ассистента

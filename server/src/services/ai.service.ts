@@ -89,7 +89,7 @@ export class AIService {
     }
 
     const model = config.model || process.env.OPENROUTER_MODEL || 'deepseek/deepseek-r1-0528:free';
-    const maxTokens = config.maxTokens || parseInt(process.env.DEFAULT_MAX_TOKENS || '512');
+    const requestedMaxTokens = config.maxTokens || parseInt(process.env.DEFAULT_MAX_TOKENS || '1024');
     const temperature = typeof config.temperature === 'number'
       ? config.temperature
       : parseFloat(process.env.DEFAULT_TEMPERATURE || '0.7');
@@ -108,7 +108,7 @@ export class AIService {
         model,
         messages: aiMessages,
         temperature,
-        max_tokens: maxTokens,
+        max_tokens: this.calculateResponseTokens(aiMessages, requestedMaxTokens),
       }),
     });
 
@@ -168,37 +168,42 @@ export class AIService {
   }
 
   private limitContext(messages: AIMessage[]): AIMessage[] {
-    const maxTokens = parseInt(process.env.MAX_CONTEXT_TOKENS || '4000');
+    const maxContextTokens = parseInt(process.env.MAX_CONTEXT_TOKENS || '12000');
     let totalTokens = 0;
-    const limitedMessages: AIMessage[] = [];
+    const systemMessage = messages.find((m) => m.role === 'system');
+    const systemCost = systemMessage ? Math.ceil(systemMessage.content.length / 4) : 0;
+    totalTokens += systemCost;
 
-    const systemMessage = messages.find(m => m.role === 'system');
-    if (systemMessage) {
-      const estimatedTokens = Math.ceil(systemMessage.content.length / 4);
-      totalTokens += estimatedTokens;
-      limitedMessages.push(systemMessage);
-    }
+    const recentMessages: AIMessage[] = [];
+    const otherMessages = messages.filter((m) => m.role !== 'system');
+    
 
-    const otherMessages = messages.filter(m => m.role !== 'system').reverse();
-
-    for (const message of otherMessages) {
+    for (let i = otherMessages.length - 1; i >= 0; i -= 1) {
+      const message = otherMessages[i];
       const estimatedTokens = Math.ceil(message.content.length / 4);
 
-      if (totalTokens + estimatedTokens > maxTokens) {
-        break;
+      if (totalTokens + estimatedTokens > maxContextTokens) {
+        continue;
       }
 
       totalTokens += estimatedTokens;
-      limitedMessages.push(message);
+      recentMessages.push(message);
     }
 
-    limitedMessages.sort((a, b) => {
-      if (a.role === 'system') return -1;
-      if (b.role === 'system') return 1;
-      return 0;
-    });
+    const orderedMessages = recentMessages.reverse();
+    return systemMessage ? [systemMessage, ...orderedMessages] : orderedMessages;
+  }
 
-    return limitedMessages;
+  private calculateResponseTokens(messages: AIMessage[], requestedMaxTokens: number): number {
+    const modelContextWindow = parseInt(process.env.MODEL_CONTEXT_WINDOW || '16384');
+    const minResponseTokens = parseInt(process.env.MIN_RESPONSE_TOKENS || '256');
+    const hardMaxTokens = parseInt(process.env.MAX_ALLOWED_TOKENS || '12000');
+
+    const promptTokens = messages.reduce((sum, message) => sum + Math.ceil(message.content.length / 4), 0);
+    const availableBudget = Math.max(modelContextWindow - promptTokens, minResponseTokens);
+    const optimalByBudget = Math.floor(availableBudget * 0.6);
+
+    return Math.max(minResponseTokens, Math.min(requestedMaxTokens, optimalByBudget, hardMaxTokens));
   }
 
   async testConnection(): Promise<{ success: boolean; provider?: string }> {
