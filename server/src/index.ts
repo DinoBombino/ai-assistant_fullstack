@@ -9,6 +9,7 @@ import filesRoutes from './routes/files.routes';
 import chatRoutes from './routes/chat'; // изменили импорт
 import bodyParser from "body-parser";
 import { connectDB } from './db/postgres';
+import { testSurrealConnection } from './db/surreal';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -39,11 +40,29 @@ app.use('/api/files', filesRoutes);
 app.use('/api/chat', chatRoutes); // изменили эту строку
 
 // Health check
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+  const surrealStatus = await testSurrealConnection();
+
   res.json({ 
     status: 'ok',
     service: 'AI Assistant API',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    surrealdb: surrealStatus
+  });
+});
+
+app.get('/api/health/surreal', async (req, res) => {
+  const surrealStatus = await testSurrealConnection();
+  if (!surrealStatus.connected) {
+    return res.status(503).json({
+      status: 'error',
+      surrealdb: surrealStatus,
+    });
+  }
+
+  res.json({
+    status: 'ok',
+    surrealdb: surrealStatus,
   });
 });
 
@@ -71,12 +90,20 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // Запуск сервера
-connectDB().then((success) => {
+connectDB().then(async (success) => {
   if (success) {
+    const surrealStatus = await testSurrealConnection();
+    if (surrealStatus.connected) {
+      console.log(`✅ SurrealDB connected: ${surrealStatus.details}`);
+    } else {
+      console.warn(`⚠️ SurrealDB not connected: ${surrealStatus.details}`);
+    }
+
     app.listen(PORT, () => {
       console.log(`✅ Server running on port ${PORT}`);
       console.log(`📊 AI Provider: ${process.env.AI_PROVIDER || 'openrouter'}`);
       console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+      console.log(`🔗 SurrealDB health check: http://localhost:${PORT}/api/health/surreal`);
       console.log(`🤖 Chat API: http://localhost:${PORT}/api/chat`);
     });
   } else {

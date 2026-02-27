@@ -27,6 +27,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
     "pg": "^8.16.3",
+    "surrealdb": "^2.0.0",
     "typescript": "~5.2.0"
   },
   "devDependencies": {

@@ -21,5 +21,17 @@ services:
       -c log_statement=all 
       -c password_encryption=scram-sha-256
 
+  surrealdb:
+    image: surrealdb/surrealdb:latest
+    container_name: ai-assistant-surrealdb
+    restart: unless-stopped
+    user: "0:0"
+    command: start --log info --user ${SURREAL_USER:-root} --pass ${SURREAL_PASS:-root} rocksdb:/data/surreal
+    ports:
+      - "8000:8000"
+    volumes:
+      - surrealdb_data:/data
+
 volumes:
   postgres_data:
+  surrealdb_data:
