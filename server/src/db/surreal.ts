@@ -8,6 +8,18 @@ interface SurrealConfig {
   password: string;
 }
 
+interface SurrealDocumentInput {
+  id: string;
+  scope: string;
+  userId: number;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  textContent: string;
+  contentDigest: string;
+  uploadedAtIso: string;
+}
+
 const normalizeBaseUrl = (rawUrl: string): string => {
   const withoutTrailingSlash = rawUrl.replace(/\/+$/, '');
   return withoutTrailingSlash.endsWith('/rpc')
@@ -16,7 +28,7 @@ const normalizeBaseUrl = (rawUrl: string): string => {
 };
 
 const resolveSurrealConfig = (): SurrealConfig => {
-  const url = process.env.SURREAL_URL || 'http://localhost:8000/rpc';
+  const url = process.env.SURREAL_URL || 'http://localhost:8001/rpc';
 
   return {
     url: normalizeBaseUrl(url),
@@ -81,7 +93,9 @@ const signin = async (config: SurrealConfig): Promise<string> => {
   return token;
 };
 
-const pingSql = async (config: SurrealConfig, token: string): Promise<void> => {
+const execSql = async (sql: string, token: string): Promise<string> => {
+  const config = resolveSurrealConfig();
+
   const response = await fetch(`${config.url}/sql`, {
     method: 'POST',
     headers: {
@@ -91,25 +105,88 @@ const pingSql = async (config: SurrealConfig, token: string): Promise<void> => {
       NS: config.namespace,
       DB: config.database,
     },
-    body: 'RETURN "ok";',
+    body: sql,
   });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`SurrealDB SQL ping failed (${response.status}): ${text}`);
-  }
-
   const payload = await response.text();
-  if (!payload.includes('ok')) {
-    throw new Error('SurrealDB SQL ping returned unexpected response');
-  }
+  console.log('SurrealDB response:', payload);
+
+  if (!response.ok) {
+    throw new Error(`SurrealDB SQL failed (${response.status}): ${payload}`);
+  }  
+  return payload;
+};
+
+const escapeSqlString = (value: string): string => {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r');
+};
+
+const ensureToken = async (): Promise<string> => {
+  const config = resolveSurrealConfig();
+  return signin(config);
+};
+
+// export const upsertFileDocument = async (input: SurrealDocumentInput): Promise<void> => {
+//   const token = await ensureToken();
+
+//   const sql = `UPSERT ${input.id} CONTENT {
+//     id: '${escapeSqlString(input.id)}',
+//     scope: '${escapeSqlString(input.scope)}',
+//     user_id: ${input.userId},
+//     original_name: '${escapeSqlString(input.originalName)}',
+//     mimetype: '${escapeSqlString(input.mimeType)}',
+//     size: ${input.size},
+//     text_content: '${escapeSqlString(input.textContent)}',
+//     text_length: ${input.textContent.length},
+//     content_digest: '${escapeSqlString(input.contentDigest)}',
+//     uploaded_at: d'${escapeSqlString(input.uploadedAtIso)}',
+//     status: 'indexed'
+//   };`;
+export const upsertFileDocument = async (input: SurrealDocumentInput): Promise<void> => {
+  const token = await ensureToken();
+  const config = resolveSurrealConfig();
+
+  const ns = config.namespace;
+  const db = config.database;
+
+  const sql = `USE NS ${ns} DB ${db};
+UPSERT ${input.id} CONTENT {
+    scope: '${escapeSqlString(input.scope)}',
+    user_id: ${input.userId},
+    original_name: '${escapeSqlString(input.originalName)}',
+    mimetype: '${escapeSqlString(input.mimeType)}',
+    size: ${input.size},
+    text_content: '${escapeSqlString(input.textContent)}',
+    text_length: ${input.textContent.length},
+    content_digest: '${escapeSqlString(input.contentDigest)}',
+    uploaded_at: d'${escapeSqlString(input.uploadedAtIso)}',
+    status: 'indexed'
+  };`;
+
+  // console.log('=== SurrealDB UPSERT SQL ===');
+  // console.log(sql);
+  // console.log('============================');  
+  await execSql(sql, token);
+};
+
+export const deleteFileDocument = async (documentId: string): Promise<void> => {
+  const token = await ensureToken();
+  await execSql(`DELETE ${escapeSqlString(documentId)};`, token);
 };
 
 export const testSurrealConnection = async (): Promise<{ connected: boolean; details?: string }> => {
   try {
     const config = resolveSurrealConfig();
     const token = await signin(config);
-    await pingSql(config, token);
+    const payload = await execSql('RETURN "ok";', token);
+
+    if (!payload.includes('ok')) {
+      throw new Error('SurrealDB SQL ping returned unexpected response');
+    }
 
     return {
       connected: true,

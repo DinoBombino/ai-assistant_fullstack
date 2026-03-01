@@ -96,6 +96,18 @@ async function initChatTables() {
     
     console.log('✅ Индексы созданы/проверены');
 
+    ///
+    await client.query(`
+      ALTER TABLE files
+      ADD COLUMN IF NOT EXISTS surreal_doc_id TEXT
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_files_surreal_doc_id ON files(surreal_doc_id)
+    `);
+    console.log('✅ Колонка surreal_doc_id создана/проверена');
+
+    ///
+
     await ensureDefaultAdmin(client);
     console.log(`✅ Дефолтный админ проверен: ${DEFAULT_ADMIN_EMAIL}`);
     

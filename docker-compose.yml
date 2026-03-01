@@ -28,7 +28,7 @@ services:
     user: "0:0"
     command: start --log info --user ${SURREAL_USER:-root} --pass ${SURREAL_PASS:-root} rocksdb:/data/surreal
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - surrealdb_data:/data
 

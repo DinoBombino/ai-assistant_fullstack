@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS files (
   mimetype TEXT NOT NULL,
   size INTEGER NOT NULL,
   data BYTEA NOT NULL,
+  surreal_doc_id TEXT,
   uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -46,6 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_id ON chat_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_files_user_id ON files(user_id);
+CREATE INDEX IF NOT EXISTS idx_files_surreal_doc_id ON files(surreal_doc_id);
 
 -- Тестовый пользователь (опционально)
 INSERT INTO users (email, password, name, role)   
