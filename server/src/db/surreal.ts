@@ -20,6 +20,21 @@ interface SurrealDocumentInput {
   uploadedAtIso: string;
 }
 
+interface SurrealChunkInput {
+  docId: string;
+  scope: string;
+  userId: number;
+  chunkIndex: number;
+  content: string;
+  uploadedAtIso: string;
+}
+
+// helper-функция чтобы не писать везде db и ns:
+const buildSqlWithNamespace = (sql: string): string => {
+  const config = resolveSurrealConfig();
+  return `USE NS ${config.namespace} DB ${config.database}; ${sql}`;
+};
+
 const normalizeBaseUrl = (rawUrl: string): string => {
   const withoutTrailingSlash = rawUrl.replace(/\/+$/, '');
   return withoutTrailingSlash.endsWith('/rpc')
@@ -113,7 +128,7 @@ const execSql = async (sql: string, token: string): Promise<string> => {
 
   if (!response.ok) {
     throw new Error(`SurrealDB SQL failed (${response.status}): ${payload}`);
-  }  
+  }
   return payload;
 };
 
@@ -128,6 +143,11 @@ const escapeSqlString = (value: string): string => {
 const ensureToken = async (): Promise<string> => {
   const config = resolveSurrealConfig();
   return signin(config);
+};
+
+const buildChunkRecordId = (docId: string, chunkIndex: number): string => {
+  const suffix = docId.replace(/^filedoc:/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `filechunk:${suffix}_${chunkIndex}`;
 };
 
 // export const upsertFileDocument = async (input: SurrealDocumentInput): Promise<void> => {
@@ -173,9 +193,47 @@ UPSERT ${input.id} CONTENT {
   await execSql(sql, token);
 };
 
+export const upsertFileChunks = async (chunks: SurrealChunkInput[]): Promise<void> => {
+  if (chunks.length === 0) return;
+
+  const token = await ensureToken();
+  const config = resolveSurrealConfig();
+
+  const sql = buildSqlWithNamespace(chunks.map((chunk) => {
+    const chunkId = buildChunkRecordId(chunk.docId, chunk.chunkIndex);
+    return `UPSERT ${chunkId} CONTENT {
+
+      doc_id: '${escapeSqlString(chunk.docId)}',
+      scope: '${escapeSqlString(chunk.scope)}',
+      user_id: ${chunk.userId},
+      chunk_index: ${chunk.chunkIndex},
+      content: '${escapeSqlString(chunk.content)}',
+      content_length: ${chunk.content.length},
+      uploaded_at: d'${escapeSqlString(chunk.uploadedAtIso)}'
+    };`;
+  }).join('\n'));
+  await execSql(sql, token);
+};
+
+export const deleteFileChunksByDocumentId = async (documentId: string): Promise<void> => {
+  const token = await ensureToken();
+  const sql = buildSqlWithNamespace(`DELETE filechunk WHERE doc_id = '${escapeSqlString(documentId)}';`);
+  await execSql(sql, token);
+};
+
+export const getChunkCountByDocumentId = async (documentId: string): Promise<number> => {
+  const token = await ensureToken();
+  const sql = buildSqlWithNamespace(`RETURN count((SELECT VALUE id FROM filechunk WHERE doc_id = '${escapeSqlString(documentId)}'));`);
+  const payload = await execSql(sql, token);
+
+  const numberMatch = payload.match(/\b(\d+)\b/);
+  return numberMatch ? Number(numberMatch[1]) : 0;
+};
+
 export const deleteFileDocument = async (documentId: string): Promise<void> => {
   const token = await ensureToken();
-  await execSql(`DELETE ${escapeSqlString(documentId)};`, token);
+  const sql = buildSqlWithNamespace(`DELETE ${escapeSqlString(documentId)};`);
+  await execSql(sql, token);
 };
 
 export const testSurrealConnection = async (): Promise<{ connected: boolean; details?: string }> => {

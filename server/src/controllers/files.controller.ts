@@ -1,15 +1,25 @@
 // server/src/controllers/files.controller.ts
 import { Request, Response } from 'express';
 import { query } from '../db/postgres';
-import { deleteFileDocument, upsertFileDocument } from '../db/surreal';
+// import { deleteFileDocument, upsertFileDocument } from '../db/surreal';
+import {
+  deleteFileChunksByDocumentId,
+  deleteFileDocument,
+  getChunkCountByDocumentId,
+  upsertFileChunks,
+  upsertFileDocument,
+} from '../db/surreal';
+
 import {
   ALLOWED_MIME_TYPES,
   buildContentDigest,
   buildSurrealDocumentId,
+  chunkText,
   extractTextFromFile,
   getMaxFileSizeBytes,
   resolveFileScope,
 } from '../services/file-ingest.service';
+
 
 const withOwnershipFilter = (baseQuery: string): string => {
   const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';
@@ -64,6 +74,11 @@ export const uploadFile = async (req: Request, res: Response) => {
   const surrealDocumentId = buildSurrealDocumentId(scope);
   const contentDigest = buildContentDigest(buffer);
   const uploadedAt = new Date();
+  const chunks = chunkText(textContent);
+
+  if (chunks.length === 0) {
+    return res.status(422).json({ error: 'Текст документа слишком короткий для разбиения на чанки' });
+  }
 
   try {
     await upsertFileDocument({
@@ -78,6 +93,16 @@ export const uploadFile = async (req: Request, res: Response) => {
       uploadedAtIso: uploadedAt.toISOString(),
     });
 
+    await upsertFileChunks(chunks.map((chunk) => ({
+      docId: surrealDocumentId,
+      scope,
+      userId,
+      chunkIndex: chunk.index,
+      content: chunk.content,
+      uploadedAtIso: uploadedAt.toISOString(),
+    })));
+
+
     try {
       const result = await query(
         `INSERT INTO files (user_id, original_name, filename, mimetype, size, data, surreal_doc_id)
@@ -86,16 +111,21 @@ export const uploadFile = async (req: Request, res: Response) => {
         [userId, originalname, originalname, mimetype, size, buffer, surrealDocumentId]
       );
 
+      const chunkCount = await getChunkCountByDocumentId(surrealDocumentId);
+
       return res.json({
         message: 'Файл успешно загружен',
         fileId: result.rows[0].id,
         surrealSynced: true,
         extractedChars: textContent.length,
+        chunksCount: chunkCount,
       });
     } catch (pgError) {
+      await deleteFileChunksByDocumentId(surrealDocumentId);
       await deleteFileDocument(surrealDocumentId);
       throw pgError;
     }
+
 ///
   } catch (err: any) {
     console.error('Ошибка загрузки:', err);
@@ -203,6 +233,7 @@ export const deleteFile = async (req: Request, res: Response) => {
     ///
     const surrealDocId: string | null = existing.rows[0].surreal_doc_id;
     if (surrealDocId) {
+      await deleteFileChunksByDocumentId(surrealDocId);
       await deleteFileDocument(surrealDocId);
     }
 
@@ -211,6 +242,7 @@ export const deleteFile = async (req: Request, res: Response) => {
       : `DELETE FROM files WHERE id = $1 AND user_id = $2 RETURNING id`;
     const deleteParams = sharedMode ? [id] : [id, req.user!.id];
     await query(deleteSql, deleteParams);
+
 
     return res.json({ message: 'Файл удалён' });
     ///
