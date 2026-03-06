@@ -19,14 +19,12 @@ import {
   getMaxFileSizeBytes,
   resolveFileScope,
 } from '../services/file-ingest.service';
-
+import { embedChunksForDocument } from '../services/rag.service';
 
 const withOwnershipFilter = (baseQuery: string): string => {
   const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';
   return sharedMode ? baseQuery : `${baseQuery} AND user_id = $2`;
 };
-
-
 
 export const uploadFile = async (req: Request, res: Response) => {
   if (!req.file) {
@@ -36,8 +34,7 @@ export const uploadFile = async (req: Request, res: Response) => {
   const { originalname, mimetype, buffer, size } = req.file;
   const userId = req.user!.id;
 
-///
-  if (!ALLOWED_MIME_TYPES.has(mimetype)) {
+if (!ALLOWED_MIME_TYPES.has(mimetype)) {
     return res.status(400).json({ error: 'Допустимы только DOCX файлы' });
   }
 
@@ -45,23 +42,10 @@ export const uploadFile = async (req: Request, res: Response) => {
   if (size > maxSize) {
     return res.status(413).json({ error: `Размер файла превышает лимит ${Math.floor(maxSize / (1024 * 1024))} MB` });
   }
-///
 
   let textContent = '';
-
   try {
-    // const result = await query(
-    //   `INSERT INTO files (user_id, original_name, filename, mimetype, size, data)
-    //    VALUES ($1, $2, $3, $4, $5, $6)
-    //    RETURNING id`,
-    //   [userId, originalname, originalname, mimetype, size, buffer]
-    // );
-
-    // res.json({ message: 'Файл успешно загружен', fileId: result.rows[0].id });
-
-///
-
-     textContent = await extractTextFromFile(buffer, mimetype);
+    textContent = await extractTextFromFile(buffer, mimetype);
   } catch (error: any) {
     return res.status(422).json({ error: `Не удалось извлечь текст из файла: ${error?.message || 'unknown error'}` });
   }
@@ -102,6 +86,7 @@ export const uploadFile = async (req: Request, res: Response) => {
       uploadedAtIso: uploadedAt.toISOString(),
     })));
 
+    const embeddingResult = await embedChunksForDocument(surrealDocumentId, chunks);
 
     try {
       const result = await query(
@@ -119,12 +104,15 @@ export const uploadFile = async (req: Request, res: Response) => {
         surrealSynced: true,
         extractedChars: textContent.length,
         chunksCount: chunkCount,
+        embeddingStatus: embeddingResult.status,
+        embeddingMessage: embeddingResult.message,
       });
     } catch (pgError) {
       await deleteFileChunksByDocumentId(surrealDocumentId);
       await deleteFileDocument(surrealDocumentId);
       throw pgError;
     }
+
 
 ///
   } catch (err: any) {
@@ -174,10 +162,6 @@ export const downloadFile = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
-    // const result = await query(
-    //   `SELECT original_name, mimetype, data FROM files WHERE id = $1 AND user_id = $2`,
-    //   [id, req.user!.id]
-    // );
     ///
     const sql = withOwnershipFilter('SELECT original_name, mimetype, data FROM files WHERE id = $1');
     const params = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true'
@@ -186,7 +170,6 @@ export const downloadFile = async (req: Request, res: Response) => {
 
     const result = await query(sql, params);
     ///
-
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Файл не найден' });
@@ -242,7 +225,6 @@ export const deleteFile = async (req: Request, res: Response) => {
       : `DELETE FROM files WHERE id = $1 AND user_id = $2 RETURNING id`;
     const deleteParams = sharedMode ? [id] : [id, req.user!.id];
     await query(deleteSql, deleteParams);
-
 
     return res.json({ message: 'Файл удалён' });
     ///

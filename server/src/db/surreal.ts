@@ -29,6 +29,14 @@ interface SurrealChunkInput {
   uploadedAtIso: string;
 }
 
+export interface SurrealEmbeddedChunk {
+  id: string;
+  doc_id: string;
+  content: string;
+  embedding: number[];
+  chunk_index: number;
+}
+
 // helper-функция чтобы не писать везде db и ns:
 const buildSqlWithNamespace = (sql: string): string => {
   const config = resolveSurrealConfig();
@@ -42,7 +50,7 @@ const normalizeBaseUrl = (rawUrl: string): string => {
     : withoutTrailingSlash;
 };
 
-const resolveSurrealConfig = (): SurrealConfig => {
+const resolveSurrealConfig = (): SurrealConfig => { //Потом убрать и иcпользовать параметры из env
   const url = process.env.SURREAL_URL || 'http://localhost:8001/rpc';
 
   return {
@@ -132,6 +140,23 @@ const execSql = async (sql: string, token: string): Promise<string> => {
   return payload;
 };
 
+const parseResult = (payload: string): any => {
+  try {
+    const parsed = JSON.parse(payload);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      // ✅ Бери ПОСЛЕДНИЙ результат, а не первый
+      // Первый — это USE NS DB, последний — результат запроса
+      const last = parsed[parsed.length - 1];
+      if (last && typeof last === 'object' && 'result' in last) {
+        return (last as any).result;
+      }
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
 const escapeSqlString = (value: string): string => {
   return value
     .replace(/\\/g, '\\\\')
@@ -150,22 +175,6 @@ const buildChunkRecordId = (docId: string, chunkIndex: number): string => {
   return `filechunk:${suffix}_${chunkIndex}`;
 };
 
-// export const upsertFileDocument = async (input: SurrealDocumentInput): Promise<void> => {
-//   const token = await ensureToken();
-
-//   const sql = `UPSERT ${input.id} CONTENT {
-//     id: '${escapeSqlString(input.id)}',
-//     scope: '${escapeSqlString(input.scope)}',
-//     user_id: ${input.userId},
-//     original_name: '${escapeSqlString(input.originalName)}',
-//     mimetype: '${escapeSqlString(input.mimeType)}',
-//     size: ${input.size},
-//     text_content: '${escapeSqlString(input.textContent)}',
-//     text_length: ${input.textContent.length},
-//     content_digest: '${escapeSqlString(input.contentDigest)}',
-//     uploaded_at: d'${escapeSqlString(input.uploadedAtIso)}',
-//     status: 'indexed'
-//   };`;
 export const upsertFileDocument = async (input: SurrealDocumentInput): Promise<void> => {
   const token = await ensureToken();
   const config = resolveSurrealConfig();
@@ -184,12 +193,27 @@ UPSERT ${input.id} CONTENT {
     text_length: ${input.textContent.length},
     content_digest: '${escapeSqlString(input.contentDigest)}',
     uploaded_at: d'${escapeSqlString(input.uploadedAtIso)}',
-    status: 'indexed'
+    status: 'indexed',
+    embedding_status: 'pending'
+
   };`;
 
   // console.log('=== SurrealDB UPSERT SQL ===');
   // console.log(sql);
   // console.log('============================');  
+  await execSql(sql, token);
+};
+
+export const setFileDocumentEmbeddingStatus = async (
+  documentId: string,
+  status: 'ready' | 'failed' | 'pending',
+  errorMessage?: string,
+): Promise<void> => {
+  const token = await ensureToken();
+  const errorPart = errorMessage
+    ? `, embedding_error = '${escapeSqlString(errorMessage)}'`
+    : ', embedding_error = NONE';
+  const sql = buildSqlWithNamespace(`UPDATE ${escapeSqlString(documentId)} SET embedding_status = '${status}'${errorPart};`);
   await execSql(sql, token);
 };
 
@@ -209,9 +233,34 @@ export const upsertFileChunks = async (chunks: SurrealChunkInput[]): Promise<voi
       chunk_index: ${chunk.chunkIndex},
       content: '${escapeSqlString(chunk.content)}',
       content_length: ${chunk.content.length},
-      uploaded_at: d'${escapeSqlString(chunk.uploadedAtIso)}'
+      uploaded_at: d'${escapeSqlString(chunk.uploadedAtIso)}',
+      embedding_status: 'pending'
     };`;
   }).join('\n'));
+  await execSql(sql, token);
+};
+
+export const setChunkEmbedding = async (
+  docId: string,
+  chunkIndex: number,
+  embedding: number[],
+  model: string,
+): Promise<void> => {
+  const token = await ensureToken();
+  const chunkId = buildChunkRecordId(docId, chunkIndex);
+  const embeddingSql = `[${embedding.map((v) => Number(v).toFixed(8)).join(',')}]`;
+  const sql = buildSqlWithNamespace(`UPDATE ${chunkId} SET embedding = ${embeddingSql}, embedding_model = '${escapeSqlString(model)}', embedding_dim = ${embedding.length}, embedding_status = 'ready', embedding_error = NONE;`);
+  await execSql(sql, token);
+};
+
+export const setChunkEmbeddingFailed = async (
+  docId: string,
+  chunkIndex: number,
+  errorMessage: string,
+): Promise<void> => {
+  const token = await ensureToken();
+  const chunkId = buildChunkRecordId(docId, chunkIndex);
+  const sql = buildSqlWithNamespace(`UPDATE ${chunkId} SET embedding_status = 'failed', embedding_error = '${escapeSqlString(errorMessage)}';`);
   await execSql(sql, token);
 };
 
@@ -225,9 +274,74 @@ export const getChunkCountByDocumentId = async (documentId: string): Promise<num
   const token = await ensureToken();
   const sql = buildSqlWithNamespace(`RETURN count((SELECT VALUE id FROM filechunk WHERE doc_id = '${escapeSqlString(documentId)}'));`);
   const payload = await execSql(sql, token);
+  const parsed = parseResult(payload);
+
+  if (Array.isArray(parsed) && typeof parsed[0] === 'number') {
+    return parsed[0];
+  }
 
   const numberMatch = payload.match(/\b(\d+)\b/);
   return numberMatch ? Number(numberMatch[1]) : 0;
+};
+
+export const countDocumentsByScope = async (scope: string, userId: number): Promise<number> => {
+  const token = await ensureToken();
+  const sql = buildSqlWithNamespace(
+    `RETURN count((SELECT VALUE id FROM filedoc WHERE scope = '${escapeSqlString(scope)}' AND user_id = ${userId}));`
+  );
+  
+  // логи
+  console.log('countDocumentsByScope: scope=', scope, 'userId=', userId);
+  console.log('countDocumentsByScope: SQL=', sql);
+  
+  const payload = await execSql(sql, token);
+  
+  // логи
+  console.log('countDocumentsByScope: payload=', payload);
+  
+  const parsed = parseResult(payload);
+  
+  // логи
+  console.log('countDocumentsByScope: parsed=', parsed);
+  
+  // Проверка на число
+  if (typeof parsed === 'number') {
+    return parsed;
+  }
+  
+  // Проверка на массив (для совместимости)
+  if (Array.isArray(parsed) && typeof parsed[0] === 'number') {
+    return parsed[0];
+  }
+  return 0;
+};
+
+export const listEmbeddedChunksByScope = async (scope: string, userId: number, limit = 400): Promise<SurrealEmbeddedChunk[]> => {
+  const token = await ensureToken();
+  const sql = buildSqlWithNamespace(`SELECT id, doc_id, content, embedding, chunk_index
+               FROM filechunk
+               WHERE scope = '${escapeSqlString(scope)}'
+                 AND user_id = ${userId}
+                 AND embedding_status = 'ready'
+                 AND embedding != NONE
+               LIMIT ${Math.max(1, Math.floor(limit))};`);
+  const payload = await execSql(sql, token);
+  const parsed = parseResult(payload);
+
+  console.log('listEmbeddedChunksByScope: parsed=', parsed);
+
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .filter((row: any) => row && typeof row === 'object' && Array.isArray(row.embedding))
+    .map((row: any) => ({
+      id: String(row.id),
+      doc_id: String(row.doc_id),
+      content: String(row.content || ''),
+      embedding: (row.embedding as any[]).map((v) => Number(v)).filter((v) => Number.isFinite(v)),
+      chunk_index: Number(row.chunk_index || 0),
+    }))
+    .filter((row) => row.embedding.length > 0 && row.content.length > 0);
 };
 
 export const deleteFileDocument = async (documentId: string): Promise<void> => {

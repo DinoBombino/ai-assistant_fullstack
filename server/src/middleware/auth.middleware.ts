@@ -14,17 +14,17 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
 
   try {
     const payload = jwt.verify(token, JWT_SECRET) as any;
-    
+
     // Получаем полную информацию о пользователе из базы данных
     const result = await query(
       'SELECT id, email, name, role FROM users WHERE id = $1',
       [payload.id]
     );
-    
+
     if (!result.rows[0]) {
       return res.status(401).json({ error: 'User not found' });
     }
-    
+
     req.user = result.rows[0];
     next();
   } catch (err) {

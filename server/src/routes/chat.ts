@@ -5,6 +5,8 @@ import { chatQueries } from '../db/postgres';
 import { aiService } from '../services/ai.service';
 import { tokenLimiter } from '../middleware/tokenLimiter';
 import { buildDockSystemInstruction, getDockContextForUser } from '../services/dock.service';
+import { retrieveContextForChat } from '../services/rag.service';
+import { resolveFileScope } from '../services/file-ingest.service';
 
 const router = Router();
 
@@ -199,11 +201,42 @@ router.post('/', authMiddleware, tokenLimiter(), async (req: Request, res: Respo
 
     const dockContext = await getDockContextForUser(userId, userHistory);
     const dockInstruction = buildDockSystemInstruction(dockContext);
-    const mergedSystemPrompt = dockInstruction
-      ? `${systemPrompt}\n\n${dockInstruction}`
-      : systemPrompt;
+    // const mergedSystemPrompt = dockInstruction
+    //   ? `${systemPrompt}\n\n${dockInstruction}`
+    //   : systemPrompt;
+
+    const scope = resolveFileScope(userId);
+    const retrieval = await retrieveContextForChat(userId, message, scope);
+
+    const retrievalInstruction = (() => {
+      switch (retrieval.reason) {
+        case 'OK':
+          return [
+            'Контекст из загруженных файлов (RAG):',
+            retrieval.context,
+            'Используй этот контекст как приоритетный источник фактов.',
+          ].join('\n');
+        case 'NO_FILES':
+          return 'Если пользователь просит ответ по файлам, сообщи: не найдено загруженных файлов для поиска контекста.';
+        case 'NO_EMBEDDINGS':
+          return 'Если пользователь просит ответ по файлам, сообщи: контекст из файлов пока недоступен (индексация не завершена).';
+        case 'NO_MATCH':
+          return 'Если пользователь просит ответ по файлам, сообщи: в загруженных файлах не найден релевантный фрагмент по запросу.';
+        default:
+          return 'Если пользователь просит ответ по файлам, сообщи: не удалось получить контекст из файлов из-за технической ошибки.';
+      }
+    })();
+
+    const mergedSystemPrompt = [
+      systemPrompt,
+      dockInstruction,
+      retrievalInstruction,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
 
     console.log('История сообщений для сессии', actualSessionId, ':', history.length, 'сообщений');
+    console.log('RAG status:', retrieval.reason, retrieval.debug);
     
     // Подготавливаем сообщения для AI
     const aiMessages = [
@@ -257,6 +290,7 @@ router.post('/', authMiddleware, tokenLimiter(), async (req: Request, res: Respo
       finishReason: aiResponse.finishReason,
       timestamp: new Date().toISOString(),
       ...(updatedSessionTitle && { sessionTitle: updatedSessionTitle }),
+      rag: { reason: retrieval.reason, usedChunks: retrieval.usedChunks },
     });
 
   } catch (error: any) {
