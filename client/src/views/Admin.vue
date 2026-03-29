@@ -28,7 +28,7 @@ const totalSize = computed(() => {
 
 const lastUpload = computed(() => {
   if (files.value.length === 0) return 'Нет файлов';
-  const dates = files.value.map(f => new Date(f.uploaded_at).getTime());
+  const dates = files.value.map((f) => new Date(f.uploaded_at).getTime());
   const latest = new Date(Math.max(...dates));
   return latest.toLocaleDateString('ru-RU');
 });
@@ -100,12 +100,12 @@ const uploadFile = async () => {
 
 const downloadFile = async (id: number, filename: string) => {
   try {
-    const res = await axios.get(`/api/files/${id}`, { 
+    const res = await axios.get(`/api/files/${id}`, {
       responseType: 'blob',
       onDownloadProgress: (progressEvent) => {
         const percent = Math.round((progressEvent.loaded * 100) / (progressEvent.total || 1));
         console.log(`Downloading: ${percent}%`);
-      }
+      },
     });
     
     const url = window.URL.createObjectURL(new Blob([res.data]));
@@ -134,7 +134,7 @@ const confirmDelete = (file: FileItem) => {
     confirmButtonColor: '#d33',
     cancelButtonColor: '#3085d6',
     confirmButtonText: 'Да, удалить!',
-    cancelButtonText: 'Отмена'
+    cancelButtonText: 'Отмена',
   }).then(async (result) => {
     if (result.isConfirmed) {
       try {
@@ -149,20 +149,19 @@ const confirmDelete = (file: FileItem) => {
 };
 
 const formatSize = (bytes: number) => {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const formatDate = (date: string) => {
-  return new Date(date).toLocaleDateString('ru-RU', {
+const formatDate = (date: string) =>
+  new Date(date).toLocaleDateString('ru-RU', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   });
-};
 
 onMounted(() => {
   loadFiles();
@@ -170,135 +169,63 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="admin-page container py-5">
-    <div class="d-flex justify-content-between align-items-center mb-5">
+  <div class="admin-page container py-4 py-md-5">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
       <div>
-        <h1 class="mb-2">Управление материалами</h1>
-        <p class="text-muted">Загрузка и управление учебными материалами</p>
+        <h1 class="mb-1">Материалы</h1>
+        <p class="text-muted mb-0">Управление документами для базы знаний.</p>
       </div>
-      <router-link to="/" class="btn btn-outline-secondary">
-        ← Назад к чату
-      </router-link>
+     <router-link to="/" class="btn btn-outline-primary">← К чату</router-link>
+    </div>
+    <div class="row g-3 mb-4">
+      <div class="col-md-4"><div class="card stat"><div class="card-body"><div class="stat-label">Файлов</div><div class="stat-value">{{ files.length }}</div></div></div></div>
+      <div class="col-md-4"><div class="card stat"><div class="card-body"><div class="stat-label">Размер</div><div class="stat-value">{{ totalSize }}</div></div></div></div>
+      <div class="col-md-4"><div class="card stat"><div class="card-body"><div class="stat-label">Последняя загрузка</div><div class="stat-value ">{{ lastUpload }}</div></div></div></div>
     </div>
 
-    <!-- Статистика -->
-    <div class="row mb-4">
-      <div class="col-md-4">
-        <div class="card stat-card">
-          <div class="card-body">
-            <h5 class="card-title">Всего файлов</h5>
-            <h2 class="card-text">{{ files.length }}</h2>
-          </div>
-        </div>
-      </div>
-      <div class="col-md-4">
-        <div class="card stat-card">
-          <div class="card-body">
-            <h5 class="card-title">Общий размер</h5>
-            <h2 class="card-text">{{ totalSize }}</h2>
-          </div>
-        </div>
-      </div>
-      <div class="col-md-4">
-        <div class="card stat-card">
-          <div class="card-body">
-            <h5 class="card-title">Последняя загрузка</h5>
-            <h2 class="card-text">{{ lastUpload }}</h2>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Форма загрузки -->
-    <div class="card mb-5 shadow">
-      <div class="card-body">
-        <h4 class="card-title mb-4">Загрузить новый файл</h4>
-        <form @submit.prevent="uploadFile" class="upload-form">
-          <div class="mb-3">
-            <div class="file-input-wrapper">
-              <input type="file" 
-                     ref="fileInput" 
-                     class="form-control" 
-                     @change="handleFileSelect"
-                     :disabled="uploading" />
-              <div class="file-info" v-if="selectedFile">
-                Выбран: {{ selectedFile.name }} ({{ formatSize(selectedFile.size) }})
-              </div>
-            </div>
-          </div>
-          <button type="submit" 
-                  class="btn btn-success btn-lg"
-                  :disabled="uploading || !selectedFile">
-            <span v-if="uploading">
-              <span class="spinner-border spinner-border-sm me-2"></span>
-              Загрузка...
-            </span>
-            <span v-else>Загрузить файл</span>
+    <div class="card mb-4">
+      <div class="card-body p-4">
+        <h5 class="mb-3">Загрузить файл</h5>
+        <form @submit.prevent="uploadFile">
+          <input type="file" ref="fileInput" class="form-control" @change="handleFileSelect" :disabled="uploading" />
+          <div class="mt-2 text-muted small" v-if="selectedFile">{{ selectedFile.name }} ({{ formatSize(selectedFile.size) }})</div>
+          <button type="submit" class="btn btn-primary mt-3" :disabled="uploading || !selectedFile">
+            <span v-if="uploading" class="spinner-border spinner-border-sm me-2"></span>
+            {{ uploading ? 'Загрузка...' : 'Загрузить' }}
           </button>
         </form>
-        <div v-if="uploadMessage" 
-             class="mt-3 alert" 
-             :class="uploadSuccess ? 'alert-success' : 'alert-danger'">
-          {{ uploadMessage }}
-        </div>
+
+        <div v-if="uploadMessage" class="mt-3 alert" :class="uploadSuccess ? 'alert-success' : 'alert-danger'">{{ uploadMessage }}</div>
       </div>
     </div>
 
-    <!-- Таблица файлов -->
-    <div class="card shadow">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-          <h4 class="card-title mb-0">Загруженные файлы</h4>
-          <button class="btn btn-outline-primary" @click="loadFiles" :disabled="loadingFiles">
-            <span class="spinner-border spinner-border-sm me-2" v-if="loadingFiles"></span>
-            Обновить
-          </button>
+    <div class="card">
+      <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h5 class="mb-0">Файлы</h5>
+          <button class="btn btn-outline-primary btn-sm" @click="loadFiles" :disabled="loadingFiles">Обновить</button>
         </div>
 
-        <div v-if="loadingFiles" class="text-center py-5">
-          <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"></div>
-          <p class="mt-3">Загрузка файлов...</p>
-        </div>
-
-        <div v-else-if="files.length === 0" class="text-center py-5 text-muted">
-          <h5>Файлов пока нет</h5>
-          <p>Загрузите первый файл, используя форму выше</p>
-        </div>
+        <div v-if="loadingFiles" class="text-center py-5"><div class="spinner-border"></div></div>
+        <div v-else-if="files.length === 0" class="text-center py-5 text-muted">Файлов пока нет.</div>
 
         <div v-else class="table-responsive">
-          <table class="table table-hover">
-            <thead class="table-light">
-              <tr>
-                <th>#</th>
-                <th>Имя файла</th>
-                <th>Размер</th>
-                <th>Дата загрузки</th>
-                <th>Действия</th>
-              </tr>
+
+           <table class="table align-middle">
+            <thead>
+              <tr><th>#</th><th>Имя файла</th><th>Размер</th><th>Дата загрузки</th><th>Действия</th></tr>
             </thead>
             <tbody>
               <tr v-for="file in files" :key="file.id">
                 <td>{{ file.id }}</td>
-                <td>
-                  <div class="d-flex align-items-center">
-                    <span class="file-icon me-2"></span>
-                    <span>{{ file.original_name }}</span>
-                  </div>
-                </td>
+
+                <td>{{ file.original_name }}</td>
                 <td>{{ formatSize(file.size) }}</td>
                 <td>{{ formatDate(file.uploaded_at) }}</td>
                 <td>
                   <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-primary" 
-                            @click="downloadFile(file.id, file.original_name)"
-                            title="Скачать">
-                      
-                    </button>
-                    <button class="btn btn-outline-danger" 
-                            @click="confirmDelete(file)"
-                            title="Удалить">
-                    
-                    </button>
+                    <button class="btn btn-outline-primary" @click="downloadFile(file.id, file.original_name)"><i class="bi bi-download"></i></button>
+                    <button class="btn btn-outline-danger" @click="confirmDelete(file)"><i class="bi bi-trash"></i></button>
                   </div>
                 </td>
               </tr>
@@ -313,60 +240,11 @@ onMounted(() => {
 
 
 <style scoped>
-.admin-page {
-  max-width: 1200px;
-}
-
-.stat-card {
-  border: none;
-  border-radius: 10px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  transition: transform 0.3s;
-}
-
-.stat-card:hover {
-  transform: translateY(-5px);
-}
-
-.stat-card .card-title {
-  color: #666;
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.stat-card .card-text {
-  color: #333;
-  font-weight: bold;
-}
-
-.upload-form .file-input-wrapper {
-  position: relative;
-}
-
-.file-info {
-  margin-top: 8px;
-  padding: 8px 12px;
-  background: #f8f9fa;
-  border-radius: 5px;
-  font-size: 0.9rem;
-  color: #666;
-}
-
-.file-icon {
-  font-size: 1.2rem;
-}
-
-.table th {
-  font-weight: 600;
-  color: #555;
-}
-
-.table td {
-  vertical-align: middle;
-}
-
-.btn-group .btn {
-  padding: 0.25rem 0.5rem;
-}
+.admin-page { max-width: 1120px; }
+h1 { font-size: 1.65rem; font-weight: 700; }
+.stat { background: #fff; }
+.stat-label { font-size: 0.78rem; color: #6a6f7a; text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-value { font-size: 1.5rem; font-weight: 700; margin-top: 0.2rem; }
+.stat-value.small { font-size: 1.15rem; }
+.table thead th { color: #6a6f7a; font-weight: 600; }
 </style>

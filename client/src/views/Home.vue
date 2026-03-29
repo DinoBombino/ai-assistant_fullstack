@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed } from 'vue'
+import { ref, onMounted, nextTick, computed } from 'vue';
 import { parseMarkdown } from '../utils/markdown';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useChatStore } from '../stores/useChatStore';
 
 // Состояния для inline-редактирования
-const isCreatingChat = ref(false)
-const newChatTitle = ref('')
-const editingSessionId = ref<number | null>(null)
-const editingSessionTitle = ref('')
+const isCreatingChat = ref(false);
+const newChatTitle = ref('');
+const editingSessionId = ref<number | null>(null);
+const editingSessionTitle = ref('');
 
-const userInput = ref('')
+const userInput = ref('');
 const auth = useAuthStore();
 const chat = useChatStore();
 const chatWindow = ref<HTMLDivElement | null>(null);
@@ -23,10 +23,10 @@ const activeSessionId = computed(() => chat.activeSessionId);
 
 // Сообщения для UI: приводим к формату { text, isUser }
 const uiMessages = computed(() =>
-  chat.messages.map(msg => ({
+  chat.messages.map((msg) => ({
     text: msg.content,
-    isUser: msg.role === 'user'
-  }))
+    isUser: msg.role === 'user',
+  })),
 );
 
 onMounted(async () => {
@@ -41,6 +41,14 @@ const ensureActiveSession = async () => {
     // Создаём новый чат по умолчанию
     await chat.createSession('Новый чат');
   }
+  // if (!chat.activeSessionId) await chat.createSession('Новый чат');
+};
+
+const scrollToBottom = async () => {
+  await nextTick(() => {
+    const target = showFullscreenModal.value ? chatWindowModal.value : chatWindow.value;
+    if (target) target.scrollTop = target.scrollHeight;
+  });
 };
 
 const sendMessage = async () => {
@@ -53,10 +61,7 @@ const sendMessage = async () => {
     console.error('Send message error:', error);
   } finally {
     userInput.value = '';
-    await nextTick(() => {
-      const target = showFullscreenModal.value ? chatWindowModal.value : chatWindow.value;
-      if (target) target.scrollTop = target.scrollHeight;
-    });
+    await scrollToBottom();
   }
 };
 
@@ -89,7 +94,7 @@ const createChat = async () => {
     isCreatingChat.value = false;
     return;
   }
-  
+
   try {
     await chat.createSession(newChatTitle.value.trim());
   } finally {
@@ -113,7 +118,7 @@ const renameChat = async () => {
     editingSessionId.value = null;
     return;
   }
-  
+
   try {
     await chat.renameSession(editingSessionId.value, editingSessionTitle.value.trim());
   } finally {
@@ -130,432 +135,339 @@ const cancelRenameChat = () => {
 </script>
 
 <template>
-  <div>
-    <div class="container">
-      <div class="row">
-        <!-- Левая часть: заголовок и список чатов -->
-        <div class="col-lg-4 mb-4">
-          <div class="text-center mb-4">
-            <h1>Ваш ИИ-помощник</h1>
-            <p>Выберите чат или создайте новый.</p>
-          </div>
+  <div class="home-shell" v-if="auth.user">
+    <aside class="chat-sidebar">
+      <button v-if="!isCreatingChat" class="btn btn-primary w-100 mb-3" @click="startCreatingChat">
+        <i class="bi bi-plus-lg me-2"></i>
+        Новый чат
+      </button>
 
-          <div v-if="auth.user" class="chat-sessions">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <h5 class="mb-0">Мои чаты</h5>
-              <button 
-                v-if="!isCreatingChat" 
-                class="btn btn-sm btn-outline-primary" 
-                @click="startCreatingChat"
-              >
-                Новый чат
-              </button>
-            </div>
-
-            <!-- Форма создания чата -->
-            <div v-if="isCreatingChat" class="create-chat-form mb-3 p-3 bg-light rounded">
-              <div class="mb-2">
-                <input
-                  v-model="newChatTitle"
-                  type="text"
-                  class="form-control form-control-sm"
-                  placeholder="Название чата"
-                  @keyup.enter="createChat"
-                  @keyup.esc="cancelCreateChat"
-                  ref="createInput"
-                />
-              </div>
-              <div class="d-flex gap-2">
-                <button class="btn btn-sm btn-primary" @click="createChat">Создать</button>
-                <button class="btn btn-sm btn-outline-secondary" @click="cancelCreateChat">Отмена</button>
-              </div>
-            </div>
-
-            <div v-if="sessions.length === 0 && !isCreatingChat" class="text-muted small">
-              Пока нет чатов. Создайте первый.
-            </div>
-
-            <ul v-else class="list-group small">
-              <li v-for="session in sessions"
-                  :key="session.id"
-                  class="list-group-item"
-                  :class="{ active: session.id === activeSessionId }"
-                  @click="editingSessionId !== session.id && selectSession(session.id)">
-                <!-- Режим редактирования -->
-                <div v-if="editingSessionId === session.id" class="rename-form">
-                  <input
-                    v-model="editingSessionTitle"
-                    type="text"
-                    class="form-control form-control-sm mb-2"
-                    @keyup.enter="renameChat"
-                    @keyup.esc="cancelRenameChat"
-                    @blur="renameChat"
-                    ref="renameInput"
-                  />
-                  <div class="d-flex gap-1">
-                    <button class="btn btn-sm btn-success" @click.stop="renameChat">Сохранить</button>
-                    <button class="btn btn-sm btn-outline-secondary" @click.stop="cancelRenameChat">Отмена</button>
-                  </div>
-                </div>
-                
-                <!-- Обычный режим отображения -->
-                <div v-else class="d-flex justify-content-between align-items-center">
-                  <div class="me-2 text-truncate flex-grow-1" @click.stop="selectSession(session.id)">
-                    {{ session.title }}
-                  </div>
-                  <div class="btn-group btn-group-sm">
-                    <button
-                      class="btn btn-outline-secondary"
-                      @click.stop="startRenamingChat(session.id, session.title)"
-                      title="Переименовать"
-                    >
-                      <i class="bi bi-pencil"></i>
-                    </button>
-                    <button
-                      class="btn btn-outline-danger"
-                      @click.stop="deleteChat(session.id)"
-                      title="Удалить"
-                    >
-                      <i class="bi bi-trash"></i>
-                    </button>
-                  </div>
-                </div>
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        <!-- Правая часть: окно чата -->
-        <div class="col-lg-8">
-          <div class="card shadow border-0">
-            <div class="card-body">
-              <h5 class="card-title mb-3 d-flex align-items-center justify-content-between">
-                <span>
-                  Чат
-                  <span v-if="chat.activeSession" class="text-muted ms-2">
-                    ({{ chat.activeSession.title }})
-                  </span>
-                </span>
-                <button
-                  v-if="auth.user && chat.activeSessionId"
-                  class="btn btn-sm btn-outline-secondary"
-                  @click="openFullscreen"
-                  title="Во весь экран"
-                >
-                  ⛶
-                </button>
-              </h5>
-
-              <div v-if="!auth.user" class="text-muted">
-                Для чата необходимо войти в систему.
-              </div>
-              <div v-else>
-                <div ref="chatWindow" class="chat-window d-flex flex-column mb-3">
-                  <div
-                    v-for="(msg, index) in uiMessages"
-                    :key="index"
-                    :class="['d-flex', msg.isUser ? 'justify-content-end' : 'justify-content-start']"
-                  >
-                    <div
-                      :class="['message-bubble', msg.isUser ? 'user-message' : 'ai-message']"
-                      v-if="msg.isUser"
-                    >
-                      {{ msg.text }}
-                    </div>
-                    <div
-                      v-else
-                      class="message-bubble ai-message"
-                      v-html="parseMarkdown(msg.text)"
-                    ></div>
-                  </div>
-                  <div v-if="isLoading" class="text-center text-muted mt-2">
-                    <div class="spinner-border spinner-border-sm" role="status"></div>
-                    <span class="ms-2">Размышляю...</span>
-                  </div>
-                </div>
-
-                <div class="input-group">
-                  <input
-                    v-model="userInput"
-                    type="text"
-                    class="form-control"
-                    placeholder="Задай вопрос..."
-                    @keyup.enter="sendMessage"
-                    :disabled="!auth.user"
-                  />
-                  <button
-                    class="btn btn-primary"
-                    @click="sendMessage"
-                    :disabled="isLoading || !auth.user"
-                  >
-                    Отправить
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+      <div v-if="isCreatingChat" class="sidebar-form mb-3">
+        <input v-model="newChatTitle" type="text" class="form-control form-control-sm" placeholder="Название чата"
+          @keyup.enter="createChat" @keyup.esc="cancelCreateChat" />
+        <div class="d-flex gap-2 mt-2">
+          <button class="btn btn-primary btn-sm" @click="createChat">Создать</button>
+          <button class="btn btn-outline-secondary btn-sm" @click="cancelCreateChat">Отмена</button>
         </div>
       </div>
-    </div>
 
-    <div
-      class="modal fade"
-      :class="{ show: showFullscreenModal }"
-      :style="{ display: showFullscreenModal ? 'block' : 'none' }"
-      tabindex="-1"
-      aria-modal="true"
-    >
+      <div class="sidebar-title">Чаты</div>
+
+      <div v-if="sessions.length === 0" class="sidebar-empty">Здесь появятся ваши диалоги.</div>
+
+      <ul v-else class="session-list">
+        <li v-for="session in sessions" :key="session.id" class="session-item"
+          :class="{ active: session.id === activeSessionId }">
+          <div v-if="editingSessionId === session.id" class="sidebar-form w-100">
+            <input v-model="editingSessionTitle" type="text" class="form-control form-control-sm"
+              @keyup.enter="renameChat" @keyup.esc="cancelRenameChat" @blur="renameChat" />
+            <div class="d-flex gap-2 mt-2">
+              <button class="btn btn-success btn-sm" @click.stop="renameChat">Сохранить</button>
+              <button class="btn btn-outline-secondary btn-sm" @click.stop="cancelRenameChat">Отмена</button>
+            </div>
+          </div>
+          <template v-else>
+            <button class="session-main" @click="selectSession(session.id)">
+              <span class="text-truncate">{{ session.title }}</span>
+            </button>
+            <div class="session-actions">
+              <button class="icon-btn" @click.stop="startRenamingChat(session.id, session.title)" title="Переименовать">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <button class="icon-btn danger" @click.stop="deleteChat(session.id)" title="Удалить">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+          </template>
+        </li>
+      </ul>
+    </aside>
+
+    <section class="chat-main">
+      <div class="chat-header">
+        <div>
+          <h1>{{ chat.activeSession?.title || 'Новый чат' }}</h1>
+          <p>Спросите что угодно — отвечу максимально понятно.</p>
+        </div>
+        <button v-if="chat.activeSessionId" class="btn btn-outline-primary btn-sm" @click="openFullscreen">
+          <i class="bi bi-arrows-fullscreen"></i>
+        </button>
+      </div>
+
+      <div ref="chatWindow" class="chat-stream">
+        <div v-if="uiMessages.length === 0" class="stream-empty">
+          <h4>Чем могу помочь?</h4>
+          <p>Введите запрос внизу, чтобы начать диалог.</p>
+        </div>
+
+        <div v-for="(msg, index) in uiMessages" :key="index" :class="['msg-row', msg.isUser ? 'user' : 'assistant']">
+          <div :class="['msg-bubble', msg.isUser ? 'user-bubble' : 'assistant-bubble']" v-if="msg.isUser">{{ msg.text }}
+          </div>
+          <div :class="['msg-bubble', 'assistant-bubble']" v-else v-html="parseMarkdown(msg.text)"></div>
+        </div>
+
+        <div v-if="isLoading" class="typing-row">
+          <div class="spinner-border spinner-border-sm"></div>
+          <span>Печатаю ответ...</span>
+        </div>
+      </div>
+
+      <div class="composer-wrap">
+        <input v-model="userInput" type="text" class="form-control" placeholder="Напишите сообщение..."
+          @keyup.enter="sendMessage" />
+        <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading">Отправить</button>
+      </div>
+    </section>
+
+    <div class="modal fade" :class="{ show: showFullscreenModal }"
+      :style="{ display: showFullscreenModal ? 'block' : 'none' }" tabindex="-1" aria-modal="true">
       <div class="modal-dialog modal-fullscreen">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">
-              Чат
-              <span v-if="chat.activeSession" class="text-muted ms-2">
-                ({{ chat.activeSession.title }})
-              </span>
-            </h5>
+            <h5 class="modal-title">{{ chat.activeSession?.title || 'Чат' }}</h5>
             <button type="button" class="btn-close" @click="closeFullscreen" aria-label="Закрыть"></button>
           </div>
-          <div class="modal-body d-flex flex-column" v-if="auth.user">
-            <div ref="chatWindowModal" class="chat-window chat-window-fullscreen d-flex flex-column flex-grow-1 mb-3">
-              <div
-                v-for="(msg, index) in uiMessages"
-                :key="index"
-                :class="['d-flex', msg.isUser ? 'justify-content-end' : 'justify-content-start']"
-              >
-                <div
-                  :class="['message-bubble', msg.isUser ? 'user-message' : 'ai-message']"
-                  v-if="msg.isUser"
-                >
-                  {{ msg.text }}
-                </div>
-                <div
-                  v-else
-                  class="message-bubble ai-message"
-                  v-html="parseMarkdown(msg.text)"
-                ></div>
-              </div>
-              <div v-if="isLoading" class="text-center text-muted mt-2">
-                <div class="spinner-border spinner-border-sm" role="status"></div>
-                <span class="ms-2">Размышляю...</span>
+          <div class="modal-body d-flex flex-column">
+            <div ref="chatWindowModal" class="chat-stream fullscreen-stream">
+              <div v-for="(msg, index) in uiMessages" :key="index"
+                :class="['msg-row', msg.isUser ? 'user' : 'assistant']">
+                <div :class="['msg-bubble', msg.isUser ? 'user-bubble' : 'assistant-bubble']" v-if="msg.isUser">{{
+                  msg.text
+                  }}</div>
+                <div :class="['msg-bubble', 'assistant-bubble']" v-else v-html="parseMarkdown(msg.text)"></div>
               </div>
             </div>
-            <div class="input-group mt-auto">
-              <input
-                v-model="userInput"
-                type="text"
-                class="form-control"
-                placeholder="Задай вопрос..."
-                @keyup.enter="sendMessage"
-              />
-              <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading">
-                Отправить
-              </button>
+            <div class="composer-wrap mt-3">
+              <input v-model="userInput" type="text" class="form-control" placeholder="Напишите сообщение..."
+                @keyup.enter="sendMessage" />
+              <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading">Отправить</button>
             </div>
           </div>
         </div>
       </div>
     </div>
-    <div class="modal-backdrop fade" :class="{ show: showFullscreenModal }" v-if="showFullscreenModal" @click="closeFullscreen"></div>
+    <div class="modal-backdrop fade" :class="{ show: showFullscreenModal }" v-if="showFullscreenModal"
+      @click="closeFullscreen"></div>
   </div>
+
+  <div v-else class="container py-5 text-center text-muted">Для чата необходимо войти в систему.</div>
 </template>
 
+
 <style scoped>
-.chat-window-fullscreen {
-  height: calc(100vh - 180px);
-  min-height: 300px;
-  max-height: none;
+.home-shell {
+  height: calc(100vh - 56px);
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  /* overflow: hidden;Чтобы убрать полоску скроллбара */
 }
 
-.chat-window {
-  height: 60vh;
-  /* Было 300px → теперь 60% высоты экрана */
-  min-height: 400px;
-  /* Минимум, чтобы не сжималось */
-  max-height: 70vh;
+.chat-sidebar {
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  padding: 0.9rem;
   overflow-y: auto;
-  background: #f8f9fa;
-  border-radius: 12px;
-  padding: 1rem;
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
-  font-size: 1rem;
-  line-height: 1.5;
 }
 
-/* Плавный скролл */
-.chat-window::-webkit-scrollbar {
-  width: 6px;
+.sidebar-title {
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 0.55rem;
 }
 
-.chat-window::-webkit-scrollbar-track {
+.sidebar-empty {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.session-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 10px;
+}
+
+.session-item.active { background: #e4e7ec; }
+
+.session-main {
+  flex: 1;
+  border: 0;
   background: transparent;
+  text-align: left;
+  padding: 0.5rem 0.55rem;
+  border-radius: 10px;
+  color: #20242c;
 }
 
-.chat-window::-webkit-scrollbar-thumb {
-  background: #adb5bd;
-  border-radius: 3px;
+.session-main:hover { background: #e9ebef; }
+
+.session-actions { display: flex; gap: 0.2rem; }
+
+.icon-btn {
+  border: 0;
+  background: transparent;
+  color: #5e6470;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
 }
 
-.message-bubble {
-  display: inline-block;
-  max-width: 80%;
-  /* Было 70% → больше места */
-  padding: 0.75rem 1rem;
-  border-radius: 18px;
+.icon-btn:hover { background: #dce1e8; }
+.icon-btn.danger:hover { color: #b91c1c; }
+
+.sidebar-form {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.55rem;
+}
+
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 1.1rem 1.5rem 0.8rem;
+}
+
+.chat-header h1 {
+  font-size: 1.2rem;
+  margin: 0;
+  font-weight: 600;
+}
+
+.chat-header p {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.chat-stream {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 1.5rem 1rem;
+}
+
+.stream-empty {
+  max-width: 680px;
+  margin: 6vh auto 1rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.msg-row {
+  max-width: 860px;
+  margin: 0 auto 0.9rem;
+  display: flex;
+}
+
+.msg-row.user { justify-content: flex-end; }
+
+.msg-bubble {
+  max-width: min(78%, 760px);
+  padding: 0.75rem 0.95rem;
+  border-radius: 14px;
   white-space: pre-wrap;
-  /* Сохраняет переносы */
   word-wrap: break-word;
-  margin: 0.35rem 0;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  animation: fadeIn 0.3s ease-out;
 }
 
-.user-message {
-  background: #007bff;
+.user-bubble {
+  background: #0D6EFD;
   color: white;
-  align-self: flex-end;
-  border-bottom-right-radius: 4px;
+  border-bottom-right-radius: 5px;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
+.assistant-bubble {
+  background: #fff;
+  border: 1px solid var(--border);
+  color: #232833;
+  border-bottom-left-radius: 5px;
+}
+
+.assistant-bubble :deep(pre) {
+  background: #f4f5f7;
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+
+.assistant-bubble :deep(code) {
+  background: #eef0f3;
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+}
+
+.typing-row {
+  max-width: 860px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted);
+}
+
+.composer-wrap {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.6rem;
+  padding: 0.85rem 1.5rem 1rem;
+  background: linear-gradient(to top, #f7f7f8 72%, rgba(247, 247, 248, 0));
+}
+
+.composer-wrap .form-control {
+  background: #fff;
+}
+
+.fullscreen-stream {
+  max-height: calc(100vh - 210px);
+}
+
+@media (max-width: 992px) {
+  .home-shell {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: calc(100vh - 56px);
   }
 
-  to {
-    opacity: 1;
-    transform: translateY(0);
+   .chat-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    max-height: 300px;
   }
 }
 
-.ai-message {
-  background: #e9ecef;
-  color: #212529;
-  align-self: flex-start;
-  border-bottom-left-radius: 4px;
-}
+@media (max-width: 576px) {
+  .chat-header,
+  .chat-stream,
+  .composer-wrap {
+    padding-left: 0.85rem;
+    padding-right: 0.85rem;
+  }
 
-.ai-message :where(h1, h2, h3, h4, h5, h6) {
-  margin: 0.5em 0;
-  font-weight: bold;
-}
+    .composer-wrap {
+    grid-template-columns: 1fr;
+  }
 
-.ai-message h1 {
-  font-size: 1.5em;
+  .msg-bubble {
+    max-width: 92%;
+  }
 }
-
-.ai-message h2 {
-  font-size: 1.3em;
-}
-
-.ai-message h3 {
-  font-size: 1.1em;
-}
-
-.ai-message h4 {
-  font-size: 1em;
-}
-
-.ai-message strong {
-  font-weight: bold;
-}
-
-.ai-message em {
-  font-style: italic;
-}
-
-.ai-message u {
-  text-decoration: underline;
-}
-
-.ai-message del,
-.ai-message s {
-  text-decoration: line-through;
-}
-
-.ai-message code {
-  background: rgba(0, 0, 0, 0.1);
-  padding: 0.2em 0.4em;
-  border-radius: 4px;
-  font-family: 'Courier New', monospace;
-  font-size: 0.9em;
-}
-
-.ai-message pre {
-  background: #f4f4f4;
-  padding: 1em;
-  border-radius: 6px;
-  overflow-x: auto;
-  margin: 1em 0;
-}
-
-.ai-message blockquote {
-  border-left: 4px solid #007bff;
-  margin: 1em 0;
-  padding-left: 1em;
-  color: #555;
-  font-style: italic;
-}
-
-.ai-message ul,
-.ai-message ol {
-  padding-left: 1.5em;
-  margin: 0.5em 0;
-}
-
-.ai-message hr {
-  border: none;
-  border-top: 1px solid #ccc;
-  margin: 1em 0;
-}
-
-.input-group {
-  margin-top: 1rem;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.input-group .form-control {
-  border: none;
-  padding: 0.75rem 1rem;
-  font-size: 1rem;
-}
-
-.input-group .btn {
-  border: none;
-  padding: 0.75rem 1.5rem;
-  font-weight: 500;
-}
-
-.chat-sessions .list-group-item.active {
-  background-color: #0d6efd;
-  border-color: #0d6efd;
-  color: #fff;
-}
-
-/* Стили для форм inline-редактирования */
-.create-chat-form {
-  border: 1px solid #dee2e6;
-}
-
-.rename-form {
-  padding: 0.5rem;
-  background: white;
-  border-radius: 4px;
-}
-
-.list-group-item {
-  transition: background-color 0.2s;
-}
-
-.list-group-item:hover {
-  background-color: #f8f9fa;
-}
-
-.list-group-item.active:hover {
-  background-color: #0d6efd;
-}
-/**/ 
 </style>

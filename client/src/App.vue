@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue';
+import { onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from './stores/useAuthStore';
 
@@ -26,197 +26,75 @@ const logout = async () => {
 </script>
 
 <template>
-  <div id="app">
-    <!-- Навигационная панель (показываем только если пользователь авторизован) -->
-    <nav v-if="auth.user" class="navbar navbar-expand-lg navbar-light bg-light shadow-sm">
-      <div class="container">
-        <router-link class="navbar-brand" to="/">AI Assistant</router-link>
-        
-        <div class="d-flex align-items-center">
-          <span class="me-3">Привет, {{ auth.user.name }}!</span>
-          <router-link v-if="auth.user.role === 'teacher' || auth.user.role === 'admin'" 
-                       to="/admin" class="btn btn-outline-primary me-2">
-            Админка
-          </router-link>
-          <button class="btn btn-outline-danger" @click="logout">Выйти</button>
+  <div id="app" class="app-shell">
+    <header v-if="auth.user" class="topbar">
+      <div class="container topbar-inner">
+        <router-link class="brand" to="/">AI Assistant</router-link>
+        <div class="topbar-actions ">
+          <small class="text">{{ auth.user.name }}</small>
+          <router-link v-if="auth.user.role === 'teacher' || auth.user.role === 'admin'" to="/admin"
+            class="btn btn-sm btn-outline-primary">Админка</router-link>
+          <button class="btn btn-sm btn-outline-danger" @click="logout">Выйти</button>
         </div>
       </div>
-    </nav>
-
+    </header>
     <div v-if="auth.isLoading && !auth.user" class="loading-overlay">
-      <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Загрузка...</span>
-      </div>
+      <div class="spinner-border" role="status"></div>
     </div>
 
-    <!-- Основное содержимое -->
-    <main>
-      <router-view />
-    </main>
+      <main class="app-main" :class="{ 'has-topbar': auth.user }">
+        <router-view />
+      </main>
   </div>
 </template>
 
+
 <style scoped>
-.chat-window {
-  /* background-color: #f8f9fa; */
-  height: 60vh;
-  /* Было 300px → теперь 60% высоты экрана */
-  min-height: 400px;
-  /* Минимум, чтобы не сжималось */
-  max-height: 70vh;
-  overflow-y: auto;
-  background: #f8f9fa;
-  border-radius: 12px;
-  padding: 1rem;
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
-  font-size: 1rem;
-  line-height: 1.5;
+.app-shell { min-height: 100vh; }
+
+.topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  background: rgba(247, 247, 248, 0.92);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid #e4e6eb;
 }
 
-/* Плавный скролл */
-.chat-window::-webkit-scrollbar {
-  width: 6px;
+.topbar-inner {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
-.chat-window::-webkit-scrollbar-track {
-  background: transparent;
+/* Стили для правой части шапки */
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.95rem;
+  /* margin-left: auto; Прижимает вправо */
+  padding-left: 3 rem; /* Дополнительный отступ для смещения */
 }
 
-.chat-window::-webkit-scrollbar-thumb {
-  background: #adb5bd;
-  border-radius: 3px;
+.brand {
+  text-decoration: none;
+  color: #1f1f23;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
-.message-bubble {
-  display: inline-block;
-  max-width: 80%;
-  /* Было 70% → больше места */
-  padding: 0.75rem 1rem;
-  border-radius: 18px;
-  white-space: pre-wrap;
-  /* Сохраняет переносы */
-  word-wrap: break-word;
-  margin: 0.35rem 0;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  animation: fadeIn 0.3s ease-out;
-}
+.app-main { min-height: 100vh; }
+.app-main.has-topbar { padding-top: 56px; }
 
-.user-message {
-  background: #007bff;
-  color: white;
-  align-self: flex-end;
-  border-bottom-right-radius: 4px;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.ai-message {
-  background: #e9ecef;
-  color: #212529;
-  align-self: flex-start;
-  border-bottom-left-radius: 4px;
-}
-
-.ai-message :where(h1, h2, h3, h4, h5, h6) {
-  margin: 0.5em 0;
-  font-weight: bold;
-}
-
-.ai-message h1 {
-  font-size: 1.5em;
-}
-
-.ai-message h2 {
-  font-size: 1.3em;
-}
-
-.ai-message h3 {
-  font-size: 1.1em;
-}
-
-.ai-message h4 {
-  font-size: 1em;
-}
-
-.ai-message strong {
-  font-weight: bold;
-}
-
-.ai-message em {
-  font-style: italic;
-}
-
-.ai-message u {
-  text-decoration: underline;
-}
-
-.ai-message del,
-.ai-message s {
-  text-decoration: line-through;
-}
-
-.ai-message code {
-  background: rgba(0, 0, 0, 0.1);
-  padding: 0.2em 0.4em;
-  border-radius: 4px;
-  font-family: 'Courier New', monospace;
-  font-size: 0.9em;
-}
-
-.ai-message pre {
-  background: #f4f4f4;
-  padding: 1em;
-  border-radius: 6px;
-  overflow-x: auto;
-  margin: 1em 0;
-}
-
-.ai-message blockquote {
-  border-left: 4px solid #007bff;
-  margin: 1em 0;
-  padding-left: 1em;
-  color: #555;
-  font-style: italic;
-}
-
-.ai-message ul,
-.ai-message ol {
-  padding-left: 1.5em;
-  margin: 0.5em 0;
-}
-
-.ai-message hr {
-  border: none;
-  border-top: 1px solid #ccc;
-  margin: 1em 0;
-}
-
-.input-group {
-  margin-top: 1rem;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.input-group .form-control {
-  border: none;
-  padding: 0.75rem 1rem;
-  font-size: 1rem;
-}
-
-.input-group .btn {
-  border: none;
-  padding: 0.75rem 1.5rem;
-  font-weight: 500;
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(247, 247, 248, 0.8);
+  z-index: 60;
 }
 </style>
