@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
 import { parseMarkdown } from '../utils/markdown';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useChatStore } from '../stores/useChatStore';
+import { LESSONS } from '../constants/lessons';
 
 // Состояния для inline-редактирования
 const isCreatingChat = ref(false);
 const newChatTitle = ref('');
+const newChatLessonId = ref('');
 const editingSessionId = ref<number | null>(null);
 const editingSessionTitle = ref('');
 
@@ -20,6 +22,17 @@ const showFullscreenModal = ref(false);
 const isLoading = computed(() => chat.sending || chat.loadingMessages);
 const sessions = computed(() => chat.sessions);
 const activeSessionId = computed(() => chat.activeSessionId);
+
+const selectedLessonId = ref('');
+const learningStage = ref<'idle' | 'intro' | 'practice' | 'completed'>('idle');
+const currentTaskIndex = ref(0);
+const inactivityTimeoutMs = 30_000;
+const inactivityHintAlreadyShown = ref(false);
+let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+const sessionLessonMap = ref<Record<number, string>>({});
+
+const selectedLesson = computed(() => LESSONS.find((lesson) => lesson.id === selectedLessonId.value) || null);
+const currentTask = computed(() => selectedLesson.value?.tasks[currentTaskIndex.value] || null);
 
 // Сообщения для UI: приводим к формату { text, isUser }
 const uiMessages = computed(() =>
@@ -39,7 +52,10 @@ onMounted(async () => {
 const ensureActiveSession = async () => {
   if (!chat.activeSessionId) {
     // Создаём новый чат по умолчанию
-    await chat.createSession('Новый чат');
+    const created = await chat.createSession(selectedLesson.value ? `Занятие: ${selectedLesson.value.title}` : 'Новый чат');
+    if (selectedLessonId.value) {
+      sessionLessonMap.value[created.id] = selectedLessonId.value;
+    }
   }
   // if (!chat.activeSessionId) await chat.createSession('Новый чат');
 };
@@ -51,16 +67,97 @@ const scrollToBottom = async () => {
   });
 };
 
+const getLessonContext = () => {
+  if (!selectedLesson.value || !currentTask.value) return undefined;
+
+  return {
+    lessonId: selectedLesson.value.id,
+    lessonTitle: selectedLesson.value.title,
+    lessonLecture: selectedLesson.value.material.lecture,
+    lessonPractice: selectedLesson.value.material.practice,
+    taskIndex: currentTaskIndex.value + 1,
+    totalTasks: selectedLesson.value.tasks.length,
+    taskTitle: currentTask.value.title,
+    taskDescription: currentTask.value.condition,
+    stage: learningStage.value === 'practice' ? 'practice' as const : 'intro' as const,
+  };
+};
+
+const containsLikelyCode = (text: string): boolean => {
+  return /```|function\s+\w+|const\s+\w+\s*=|let\s+\w+\s*=|for\s*\(|while\s*\(|if\s*\(/i.test(text);
+};
+
+const captureDifficultySignal = (payload: { reason: string; lessonId?: string; taskId?: string }) => {
+  console.info('difficulty-signal-stub', payload);
+};
+
+const resetInactivityTimer = () => {
+  if (inactivityTimer) clearTimeout(inactivityTimer);
+  if (learningStage.value !== 'practice' || inactivityHintAlreadyShown.value) return;
+
+  inactivityTimer = setTimeout(async () => {
+    chat.addLocalAssistantMessage(
+      'Похоже, ты давно не отвечаешь. Какие-то трудности? Если хочешь, помогу разобрать шаг за шагом. (Заглушка: в будущем здесь будет отправка сигнала преподавателю).',
+    );
+    captureDifficultySignal({
+      reason: 'practice_inactivity',
+      lessonId: selectedLesson.value?.id,
+      taskId: currentTask.value?.id,
+    });
+    inactivityHintAlreadyShown.value = true;
+    await scrollToBottom();
+  }, inactivityTimeoutMs);
+};
+
+const advanceToNextTask = async (feedback?: string) => {
+  if (!selectedLesson.value) return;
+
+  const hasNextTask = currentTaskIndex.value < selectedLesson.value.tasks.length - 1;
+  if (hasNextTask) {
+    currentTaskIndex.value += 1;
+    const nextTask = selectedLesson.value.tasks[currentTaskIndex.value];
+    chat.addLocalAssistantMessage(
+      `${feedback ? `${feedback}
+
+` : ''}✅ Отлично, решение засчитано. Переходим к следующему заданию (${currentTaskIndex.value + 1}/${selectedLesson.value.tasks.length}): **${nextTask.title}**.
+${nextTask.condition}`,
+    );
+    await scrollToBottom();
+    return;
+  }
+
+  learningStage.value = 'completed';
+  chat.addLocalAssistantMessage(
+    `${feedback ? `${feedback}
+
+` : ''}🎉 Все задания по занятию выполнены. Отличная работа!`,
+  );
+  await scrollToBottom();
+};
+
 const sendMessage = async () => {
   if (!userInput.value.trim()) return;
+  if (!selectedLesson.value) {
+    window.alert('Сначала выберите занятие.');
+    return;
+  }
+
+  const message = userInput.value;
 
   try {
     await ensureActiveSession();
-    await chat.sendMessage(userInput.value);
+    const result = await chat.sendMessage(message, {
+      lessonContext: getLessonContext(),
+    });
+
+    if (learningStage.value === 'practice' && containsLikelyCode(message) && result.evaluation?.isSolved) {
+      await advanceToNextTask(result.evaluation.feedback);
+    }
   } catch (error) {
     console.error('Send message error:', error);
   } finally {
     userInput.value = '';
+    resetInactivityTimer();
     await scrollToBottom();
   }
 };
@@ -88,6 +185,52 @@ const closeFullscreen = () => {
 
 const selectSession = async (sessionId: number) => {
   await chat.fetchMessages(sessionId);
+const mappedLessonId = sessionLessonMap.value[sessionId];
+  if (mappedLessonId) {
+    selectedLessonId.value = mappedLessonId;
+  } else {
+    selectedLessonId.value = '';
+    learningStage.value = 'idle';
+  }
+};
+
+const startLessonFlow = async () => {
+  if (!selectedLesson.value) {
+    window.alert('Выберите занятие перед переходом в чат.');
+    return;
+  }
+
+  learningStage.value = 'intro';
+  currentTaskIndex.value = 0;
+  inactivityHintAlreadyShown.value = false;
+  chat.addLocalAssistantMessage(
+    `📘 Краткий экскурс по занятию.
+
+Теория: ${selectedLesson.value.material.lecture}
+
+Практика: ${selectedLesson.value.material.practice}
+
+Всё ли понятно? Если да, нажмите кнопку «Да, перейти к практике».`,
+  );
+  await scrollToBottom();
+};
+
+const confirmIntroUnderstood = async () => {
+  if (!selectedLesson.value) return;
+
+  learningStage.value = 'practice';
+  currentTaskIndex.value = 0;
+  const task = selectedLesson.value.tasks[0];
+  chat.addLocalAssistantMessage(
+    `Отлично! Переходим к практике.
+
+Задание 1/${selectedLesson.value.tasks.length}: **${task.title}**
+${task.condition}
+Формат ввода: ${task.inputFormat}
+Формат вывода: ${task.outputFormat}`,
+  );
+  resetInactivityTimer();
+  await scrollToBottom();
 };
 
 const deleteChat = async (sessionId: number) => {
@@ -101,24 +244,34 @@ const deleteChat = async (sessionId: number) => {
 const startCreatingChat = () => {
   isCreatingChat.value = true;
   newChatTitle.value = 'Новый чат';
+  newChatLessonId.value = selectedLessonId.value;
 };
 const createChat = async () => {
   if (!newChatTitle.value.trim()) {
     isCreatingChat.value = false;
     return;
   }
+  if (!newChatLessonId.value) {
+    window.alert('Перед созданием чата выберите текущее занятие.');
+    return;
+  }
 
   try {
-    await chat.createSession(newChatTitle.value.trim());
+    selectedLessonId.value = newChatLessonId.value;
+    const created = await chat.createSession(newChatTitle.value.trim());
+    sessionLessonMap.value[created.id] = newChatLessonId.value;
+    await startLessonFlow();
   } finally {
     isCreatingChat.value = false;
     newChatTitle.value = '';
+    newChatLessonId.value = '';
   }
 };
 
 const cancelCreateChat = () => {
   isCreatingChat.value = false;
   newChatTitle.value = '';
+  newChatLessonId.value = '';
 };
 
 // Переименование через inline-форму
@@ -145,6 +298,12 @@ const cancelRenameChat = () => {
   editingSessionTitle.value = '';
 };
 ///
+
+onUnmounted(() => {
+  if (inactivityTimer) {
+    clearTimeout(inactivityTimer);
+  }
+});
 </script>
 
 <template>
@@ -158,6 +317,12 @@ const cancelRenameChat = () => {
       <div v-if="isCreatingChat" class="sidebar-form mb-3">
         <input v-model="newChatTitle" type="text" class="form-control form-control-sm" placeholder="Название чата"
           @keyup.enter="createChat" @keyup.esc="cancelCreateChat" />
+          <select v-model="newChatLessonId" class="form-select form-select-sm mt-2">
+          <option value="">Выберите занятие...</option>
+          <option v-for="lesson in LESSONS" :key="lesson.id" :value="lesson.id">
+            {{ lesson.title }}
+          </option>
+        </select>
         <div class="d-flex gap-2 mt-2">
           <button class="btn btn-primary btn-sm" @click="createChat">Создать</button>
           <button class="btn btn-outline-secondary btn-sm" @click="cancelCreateChat">Отмена</button>
@@ -207,6 +372,36 @@ const cancelRenameChat = () => {
         </button>
       </div>
 
+      <div class="lesson-panel">
+        <div class="lesson-select-row">
+          <label class="form-label mb-1">Текущее занятие</label>
+          <select class="form-select" v-model="selectedLessonId" :disabled="learningStage !== 'idle'">
+            <option value="">Выберите занятие...</option>
+            <option v-for="lesson in LESSONS" :key="lesson.id" :value="lesson.id">
+              {{ lesson.title }}
+            </option>
+          </select>
+          <small v-if="selectedLesson" class="text-muted">{{ selectedLesson.shortOverview }}</small>
+        </div>
+
+        <div class="lesson-actions mt-2" v-if="learningStage === 'idle'">
+          <button class="btn btn-primary" :disabled="!selectedLessonId" @click="startLessonFlow">
+            Перейти в чат по занятию
+          </button>
+        </div>
+
+        <div class="lesson-actions mt-2" v-if="learningStage === 'intro'">
+          <button class="btn btn-success" @click="confirmIntroUnderstood">Да, перейти к практике</button>
+        </div>
+
+        <div class="lesson-progress mt-2" v-if="learningStage === 'practice' || learningStage === 'completed'">
+          <span v-if="learningStage === 'practice' && selectedLesson">
+            Практика: задание {{ currentTaskIndex + 1 }} из {{ selectedLesson.tasks.length }}
+          </span>
+          <span v-else>Занятие завершено ✅</span>
+        </div>
+      </div>
+
       <div ref="chatWindow" class="chat-stream">
         <div v-if="uiMessages.length === 0" class="stream-empty">
           <h4>Чем могу помочь?</h4>
@@ -226,9 +421,9 @@ const cancelRenameChat = () => {
       </div>
 
       <div class="composer-wrap">
-        <textarea v-model="userInput" class="form-control composer-input" placeholder="Напишите сообщение..." rows="1"
+        <textarea v-model="userInput" class="form-control composer-input" placeholder="Напишите сообщение..." rows="1" :disabled="!selectedLessonId"
           @keydown="handleComposerKeydown" @input="autoResizeComposer"></textarea>
-        <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading">Отправить</button>
+        <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading || !selectedLessonId">Отправить</button>
       </div>
     </section>
 
@@ -252,8 +447,8 @@ const cancelRenameChat = () => {
             </div>
             <div class="composer-wrap mt-3">
               <textarea v-model="userInput" class="form-control composer-input" placeholder="Напишите сообщение..."
-                rows="1" @keydown="handleComposerKeydown" @input="autoResizeComposer"></textarea>
-              <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading">Отправить</button>
+                rows="1" :disabled="!selectedLessonId" @keydown="handleComposerKeydown" @input="autoResizeComposer"></textarea>
+              <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading || !selectedLessonId">Отправить</button>
             </div>
           </div>
         </div>
@@ -379,6 +574,25 @@ const cancelRenameChat = () => {
   margin: 0.25rem 0 0;
   color: var(--text-muted);
   font-size: 0.9rem;
+}
+
+.lesson-panel {
+  border: 1px solid #e6e8ef;
+  border-radius: 14px;
+  padding: 14px;
+  margin: 0 24px 14px;
+  background: #fafbff;
+}
+
+.lesson-select-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lesson-progress {
+  font-weight: 600;
+  color: #334155;
 }
 
 .chat-stream {

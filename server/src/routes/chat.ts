@@ -9,6 +9,18 @@ import { resolveFileScope } from '../services/file-ingest.service';
 
 const router = Router();
 
+interface LessonContextPayload {
+  lessonId: string;
+  lessonTitle: string;
+  lessonLecture: string;
+  lessonPractice: string;
+  taskIndex: number;
+  totalTasks: number;
+  taskTitle: string;
+  taskDescription: string;
+  stage: 'intro' | 'practice';
+}
+
 interface ChatRequest {
   sessionId?: number | string;
   message: string;
@@ -16,7 +28,23 @@ interface ChatRequest {
   maxTokens?: number;
   temperature?: number;
   role?: string;
+  lessonContext?: LessonContextPayload;
 }
+
+const containsLikelyCode = (text: string): boolean => /```|function\s+\w+|const\s+\w+\s*=|let\s+\w+\s*=|for\s*\(|while\s*\(|if\s*\(/i.test(text);
+
+const parseEvaluation = (raw: string): { isSolved: boolean; feedback: string } | null => {
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.isSolved === 'boolean' && typeof parsed?.feedback === 'string') {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
 
 // Вспомогательная функция для преобразования sessionId в число
 const parseSessionId = (sessionId: any): number | undefined => {
@@ -191,7 +219,7 @@ router.delete('/sessions/:sessionId', authMiddleware, async (req: Request, res: 
 // Основной эндпоинт для чата
 router.post('/', authMiddleware, tokenLimiter(), async (req: Request, res: Response) => {
   try {
-    const { sessionId, message, model, maxTokens, temperature, role }: ChatRequest = req.body;
+    const { sessionId, message, model, maxTokens, temperature, role, lessonContext }: ChatRequest = req.body;
     
     if (!message?.trim()) {
       return res.status(400).json({ error: 'Message is required' });
@@ -253,6 +281,18 @@ router.post('/', authMiddleware, tokenLimiter(), async (req: Request, res: Respo
     const scope = resolveFileScope(userId);
     const retrieval = await retrieveContextForChat(userId, message, scope);
 
+    const lessonInstruction = lessonContext
+      ? [
+          `Текущее занятие: ${lessonContext.lessonTitle}.`,
+          `Ключевая теория занятия: ${lessonContext.lessonLecture}`,
+          `Практический блок занятия: ${lessonContext.lessonPractice}`,
+          `Текущий этап: ${lessonContext.stage}.`,
+          `Текущее практическое задание ${lessonContext.taskIndex}/${lessonContext.totalTasks}: ${lessonContext.taskTitle}.`,
+          `Условие задания: ${lessonContext.taskDescription}`,
+          'Когда ученик задаёт уточняющий вопрос, отвечай по сути текущего задания и подводи к самостоятельному решению.',
+        ].join('\n')
+      : null;
+
     const retrievalInstruction = (() => {
       switch (retrieval.reason) {
         case 'OK': {
@@ -280,6 +320,7 @@ router.post('/', authMiddleware, tokenLimiter(), async (req: Request, res: Respo
     const mergedSystemPrompt = [
       systemPrompt,
       dockInstruction,
+      lessonInstruction,
       retrievalInstruction,
     ]
       .filter(Boolean)
@@ -318,6 +359,45 @@ router.post('/', authMiddleware, tokenLimiter(), async (req: Request, res: Respo
       aiResponse.tokens
     );
 
+    let evaluation: { isSolved: boolean; feedback: string } | undefined;
+    if (lessonContext?.stage === 'practice' && containsLikelyCode(message)) {
+      try {
+        const evaluationResponse = await aiService.chat(
+          [
+            {
+              role: 'system',
+              content:
+                'Ты валидатор решений ученика. Верни строго JSON формата {"isSolved": boolean, "feedback": string}. isSolved=true только если решение вероятно рабочее и соответствует условию. feedback — короткий комментарий на русском.',
+            },
+            {
+              role: 'user',
+              content: [
+                `Занятие: ${lessonContext.lessonTitle}`,
+                `Задание: ${lessonContext.taskTitle}`,
+                `Условие: ${lessonContext.taskDescription}`,
+                'Сообщение ученика:',
+                message,
+                'Ответ ассистента:',
+                aiResponse.content,
+              ].join('\n\n'),
+            },
+          ],
+          {
+            model,
+            temperature: 0,
+            maxTokens: 200,
+          }
+        );
+
+        const parsedEvaluation = parseEvaluation(evaluationResponse.content);
+        if (parsedEvaluation) {
+          evaluation = parsedEvaluation;
+        }
+      } catch (evalError) {
+        console.warn('Evaluation parsing skipped:', evalError);
+      }
+    }
+
     // Обновляем время сессии и, при необходимости, заголовок
     let updatedSessionTitle: string | undefined;
     const latestMessages = await chatQueries.getSessionMessages(actualSessionId, 1);
@@ -342,6 +422,7 @@ router.post('/', authMiddleware, tokenLimiter(), async (req: Request, res: Respo
       ...(updatedSessionTitle && { sessionTitle: updatedSessionTitle }),
       rag: { reason: retrieval.reason, usedChunks: retrieval.usedChunks },
       ragFolders: retrieval.usedFolders,
+      ...(evaluation && { evaluation }),
     });
 
   } catch (error: any) {

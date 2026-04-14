@@ -25,6 +25,30 @@ interface ChatState {
   sending: boolean;
 }
 
+interface LessonContextPayload {
+  lessonId: string;
+  lessonTitle: string;
+  lessonLecture: string;
+  lessonPractice: string;
+  taskIndex: number;
+  totalTasks: number;
+  taskTitle: string;
+  taskDescription: string;
+  stage: 'intro' | 'practice';
+}
+
+interface SendMessageOptions {
+  lessonContext?: LessonContextPayload;
+}
+
+interface SendMessageResult {
+  replyText: string;
+  evaluation?: {
+    isSolved: boolean;
+    feedback: string;
+  };
+}
+
 export const useChatStore = defineStore('chat', {
   state: (): ChatState => ({
     sessions: [],
@@ -148,8 +172,21 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    async sendMessage(message: string) {
-      if (!message.trim()) return;
+    addLocalAssistantMessage(content: string) {
+      const localMessage: ChatMessage = {
+        id: Date.now(),
+        role: 'assistant',
+        content,
+        created_at: new Date().toISOString(),
+        tokens: null,
+      };
+      this.messages.push(localMessage);
+    },
+
+    async sendMessage(message: string, options: SendMessageOptions = {}): Promise<SendMessageResult> {
+      if (!message.trim()) {
+        return { replyText: '' };
+      }
 
       if (!this.activeSessionId) {
         throw new Error('No active chat session selected');
@@ -174,6 +211,7 @@ export const useChatStore = defineStore('chat', {
           {
             sessionId: this.activeSessionId,
             message,
+            lessonContext: options.lessonContext,
           },
           { withCredentials: true }
         );
@@ -194,7 +232,10 @@ export const useChatStore = defineStore('chat', {
           this.updateSessionTitleLocally(this.activeSessionId, sessionTitle);
         }
 
-        return replyText;
+        return {
+          replyText,
+          evaluation: res.data.evaluation,
+        };
       } catch (error) {
         console.error('Failed to send chat message:', error);
         // В случае ошибки добавим системное сообщение
