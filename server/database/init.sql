@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 CREATE TABLE IF NOT EXISTS files (
   id SERIAL PRIMARY KEY,
   user_id INTEGER REFERENCES users(id),
+  folder_name TEXT NOT NULL DEFAULT 'Лекции',
   filename TEXT NOT NULL,
   original_name TEXT NOT NULL,
   mimetype TEXT NOT NULL,
@@ -48,6 +49,7 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages(session
 CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_files_user_id ON files(user_id);
 CREATE INDEX IF NOT EXISTS idx_files_surreal_doc_id ON files(surreal_doc_id);
+CREATE INDEX IF NOT EXISTS idx_files_folder_name ON files(folder_name);
 
 -- Тестовый пользователь (опционально)
 INSERT INTO users (email, password, name, role)   

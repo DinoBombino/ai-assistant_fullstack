@@ -9,6 +9,7 @@ interface FileItem {
   original_name: string;
   size: number;
   uploaded_at: string;
+  folder_name: string;
 }
 
 const files = ref<FileItem[]>([]);
@@ -18,21 +19,33 @@ const uploadMessage = ref('');
 const uploadSuccess = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 const selectedFile = ref<File | null>(null);
+const selectedFolder = ref('Лекции');
+const newFolderName = ref('');
+const permanentFolders = ['Лекции', 'Практика'];
 
+
+const folderOptions = computed(() => {
+  const folders = new Set(files.value.map((file) => file.folder_name || 'Лекции'));
+  permanentFolders.forEach((folder) => folders.add(folder));
+  return Array.from(folders).sort((a, b) => a.localeCompare(b, 'ru'));
+});
+
+const filteredFiles = computed(() =>
+  files.value.filter((file) => (file.folder_name || 'Лекции') === selectedFolder.value)
+);
     
 
 const totalSize = computed(() => {
-  const total = files.value.reduce((sum, file) => sum + file.size, 0);
+  const total = filteredFiles.value.reduce((sum, file) => sum + file.size, 0);
   return formatSize(total);
 });
 
 const lastUpload = computed(() => {
-  if (files.value.length === 0) return 'Нет файлов';
-  const dates = files.value.map((f) => new Date(f.uploaded_at).getTime());
+  if (filteredFiles.value.length === 0) return 'Нет файлов';
+  const dates = filteredFiles.value.map((f) => new Date(f.uploaded_at).getTime());
   const latest = new Date(Math.max(...dates));
   return latest.toLocaleDateString('ru-RU');
 });
-
 
 const loadFiles = async () => {
   loadingFiles.value = true;
@@ -43,6 +56,9 @@ const loadFiles = async () => {
     console.log('Файлы:', res.data.files);
     files.value = res.data.files || [];
     console.log('files.value после обновления:', files.value);
+    if (!folderOptions.value.includes(selectedFolder.value)) {
+      selectedFolder.value = 'Лекции';
+    }
   } catch (err) {
     console.error('Error loading files:', err);
     Swal.fire({
@@ -70,6 +86,7 @@ const uploadFile = async () => {
   
   const formData = new FormData();
   formData.append('file', selectedFile.value);
+  formData.append('folderName', selectedFolder.value);
 
   try {
     await axios.post('/api/files/upload', formData, {
@@ -163,6 +180,13 @@ const formatDate = (date: string) =>
     minute: '2-digit',
   });
 
+const createFolder = () => {
+  const normalized = newFolderName.value.trim().replace(/\s+/g, ' ').slice(0, 120);
+  if (!normalized) return;
+  selectedFolder.value = normalized;
+  newFolderName.value = '';
+};
+
 onMounted(() => {
   loadFiles();
 });
@@ -178,16 +202,42 @@ onMounted(() => {
      <router-link to="/" class="btn btn-outline-primary">← К чату</router-link>
     </div>
     <div class="row g-3 mb-4">
-      <div class="col-md-4"><div class="card stat"><div class="card-body"><div class="stat-label">Файлов</div><div class="stat-value">{{ files.length }}</div></div></div></div>
+      <div class="col-md-4"><div class="card stat"><div class="card-body"><div class="stat-label">Файлов в папке</div><div class="stat-value">{{ filteredFiles.length }}</div></div></div></div>
       <div class="col-md-4"><div class="card stat"><div class="card-body"><div class="stat-label">Размер</div><div class="stat-value">{{ totalSize }}</div></div></div></div>
       <div class="col-md-4"><div class="card stat"><div class="card-body"><div class="stat-label">Последняя загрузка</div><div class="stat-value ">{{ lastUpload }}</div></div></div></div>
     </div>
 
     <div class="card mb-4">
       <div class="card-body p-4">
+        <h5 class="mb-3">Папка материалов</h5>
+        <div class="row g-2 mb-4">
+          <div class="col-md-6">
+            <label class="form-label">Текущая папка</label>
+            <select class="form-select" v-model="selectedFolder">
+              <option v-for="folder in folderOptions" :key="folder" :value="folder">{{ folder }}</option>
+            </select>
+            <div class="form-text">Постоянные папки: Лекции и Практика.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Новая папка</label>
+            <div class="input-group">
+              <input
+                v-model="newFolderName"
+                type="text"
+                maxlength="120"
+                placeholder="Например: Лекции / Математика"
+                class="form-control"
+                @keyup.enter="createFolder"
+              />
+              <button class="btn btn-outline-secondary" type="button" @click="createFolder">Создать</button>
+            </div>
+          </div>
+        </div>
+
         <h5 class="mb-3">Загрузить файл</h5>
         <form @submit.prevent="uploadFile">
           <input type="file" ref="fileInput" class="form-control" @change="handleFileSelect" :disabled="uploading" />
+          <div class="mt-2 text-muted small">Файл будет загружен в папку: <b>{{ selectedFolder }}</b></div>
           <div class="mt-2 text-muted small" v-if="selectedFile">{{ selectedFile.name }} ({{ formatSize(selectedFile.size) }})</div>
           <button type="submit" class="btn btn-primary mt-3" :disabled="uploading || !selectedFile">
             <span v-if="uploading" class="spinner-border spinner-border-sm me-2"></span>
@@ -207,18 +257,18 @@ onMounted(() => {
         </div>
 
         <div v-if="loadingFiles" class="text-center py-5"><div class="spinner-border"></div></div>
-        <div v-else-if="files.length === 0" class="text-center py-5 text-muted">Файлов пока нет.</div>
+        <div v-else-if="filteredFiles.length === 0" class="text-center py-5 text-muted">В выбранной папке пока нет файлов.</div>
 
         <div v-else class="table-responsive">
 
            <table class="table align-middle">
             <thead>
-              <tr><th>#</th><th>Имя файла</th><th>Размер</th><th>Дата загрузки</th><th>Действия</th></tr>
+              <tr><th>#</th><th>Папка</th><th>Имя файла</th><th>Размер</th><th>Дата загрузки</th><th>Действия</th></tr>
             </thead>
             <tbody>
-              <tr v-for="file in files" :key="file.id">
+              <tr v-for="file in filteredFiles" :key="file.id">
                 <td>{{ file.id }}</td>
-
+                <td>{{ file.folder_name || 'Лекции' }}</td>
                 <td>{{ file.original_name }}</td>
                 <td>{{ formatSize(file.size) }}</td>
                 <td>{{ formatDate(file.uploaded_at) }}</td>

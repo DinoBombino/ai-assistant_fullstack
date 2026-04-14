@@ -102,7 +102,14 @@ async function initChatTables() {
       ADD COLUMN IF NOT EXISTS surreal_doc_id TEXT
     `);
     await client.query(`
+      ALTER TABLE files
+      ADD COLUMN IF NOT EXISTS folder_name TEXT NOT NULL DEFAULT 'Лекции'
+    `);
+    await client.query(`
       CREATE INDEX IF NOT EXISTS idx_files_surreal_doc_id ON files(surreal_doc_id)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_files_folder_name ON files(folder_name)
     `);
     console.log('✅ Колонка surreal_doc_id создана/проверена');
 

@@ -14,6 +14,7 @@ interface RetrievalResult {
   reason: RetrievalReason;
   context: string;
   usedChunks: number;
+  usedFolders: string[];
   debug: string;
 }
 
@@ -22,6 +23,37 @@ const getTopK = (): number => Math.max(1, Number(process.env.RAG_TOP_K || '5'));
 const getMinScore = (): number => Number(process.env.RAG_MIN_SCORE || '0');
 const getMaxContextChars = (): number => Math.max(500, Number(process.env.RAG_MAX_CONTEXT_CHARS || '3000'));
 const isRagEnabled = (): boolean => String(process.env.RAG_ENABLE || 'true').toLowerCase() === 'true';
+
+const resolveFolderLabel = (chunk: { folder_name?: string; content: string }): string => {
+  const raw = String(chunk.folder_name || '').trim();
+  if (raw) return raw;
+
+  const content = chunk.content.toLowerCase();
+  if (content.includes('практическ') || content.includes('задание')) {
+    return 'Практика';
+  }
+  if (content.includes('лекци')) {
+    return 'Лекции';
+  }
+  return 'Материалы';
+};
+
+const computeIntentBoost = (query: string, content: string, folderName: string): number => {
+  const q = query.toLowerCase();
+  const c = content.toLowerCase();
+
+  const practicalIntent = /(задач|реши|решить|номер|практик)/.test(q);
+  const theoryIntent = /(объясни|теори|лекци|что такое|поясни)/.test(q);
+
+  let boost = 0;
+  if (practicalIntent && (folderName === 'Практика' || c.includes('задание') || c.includes('практическ'))) {
+    boost += 0.12;
+  }
+  if (theoryIntent && (folderName === 'Лекции' || c.includes('лекци'))) {
+    boost += 0.08;
+  }
+  return boost;
+};
 
 const cosineSimilarity = (a: number[], b: number[]): number => {
   if (a.length === 0 || b.length === 0 || a.length !== b.length) return -1;
@@ -115,18 +147,18 @@ export const embedChunksForDocument = async (
 
 export const retrieveContextForChat = async (userId: number, query: string, scope: string): Promise<RetrievalResult> => {
   if (!isRagEnabled()) {
-    return { reason: 'RETRIEVAL_ERROR', context: '', usedChunks: 0, debug: 'RAG disabled by env' };
+    return { reason: 'RETRIEVAL_ERROR', context: '', usedChunks: 0, usedFolders: [], debug: 'RAG disabled by env' };
   }
 
   try {
     const docsCount = await countDocumentsByScope(scope, userId);
     if (docsCount === 0) {
-      return { reason: 'NO_FILES', context: '', usedChunks: 0, debug: 'No files in scope' };
+      return { reason: 'NO_FILES', context: '', usedChunks: 0, usedFolders: [], debug: 'No files in scope' };
     }
 
     const candidates = await listEmbeddedChunksByScope(scope, userId, 400);
     if (candidates.length === 0) {
-      return { reason: 'NO_EMBEDDINGS', context: '', usedChunks: 0, debug: 'No embedded chunks found' };
+      return { reason: 'NO_EMBEDDINGS', context: '', usedChunks: 0, usedFolders: [], debug: 'No embedded chunks found' };
     }
 
     const [queryEmbedding] = await createEmbeddings([query]);
@@ -136,22 +168,30 @@ export const retrieveContextForChat = async (userId: number, query: string, scop
     const ranked = candidates
       .map((chunk) => ({
         chunk,
-        score: cosineSimilarity(queryEmbedding, chunk.embedding),
+        folderName: resolveFolderLabel(chunk),
+        baseScore: cosineSimilarity(queryEmbedding, chunk.embedding),
+      }))
+      .map((item) => ({
+        ...item,
+        score: item.baseScore + computeIntentBoost(query, item.chunk.content, item.folderName),
       }))
       .filter((item) => Number.isFinite(item.score) && item.score >= minScore)
       .sort((a, b) => b.score - a.score)
       .slice(0, topK);
 
     if (ranked.length === 0) {
-      return { reason: 'NO_MATCH', context: '', usedChunks: 0, debug: `No chunks above min score ${minScore}` };
+      return { reason: 'NO_MATCH', context: '', usedChunks: 0, usedFolders: [], debug: `No chunks above min score ${minScore}` };
     }
 
     const maxChars = getMaxContextChars();
     const contextChunks: string[] = [];
+    const folders = new Set<string>();
     let total = 0;
 
     for (const item of ranked) {
-      const line = `[doc:${item.chunk.doc_id}#${item.chunk.chunk_index} score=${item.score.toFixed(3)}] ${item.chunk.content}`;
+      const folderName = item.chunk.folder_name || 'Лекции';
+      folders.add(folderName);
+      const line = `[folder:${folderName}] [doc:${item.chunk.doc_id}#${item.chunk.chunk_index} score=${item.score.toFixed(3)}] ${item.chunk.content}`;
       if (total + line.length > maxChars) break;
       contextChunks.push(line);
       total += line.length;
@@ -161,13 +201,15 @@ export const retrieveContextForChat = async (userId: number, query: string, scop
       reason: 'OK',
       context: contextChunks.join('\n\n'),
       usedChunks: contextChunks.length,
-      debug: `Candidates=${candidates.length}, Selected=${contextChunks.length}`,
+      usedFolders: Array.from(folders).sort((a, b) => a.localeCompare(b, 'ru')),
+      debug: `Candidates=${candidates.length}, Selected=${contextChunks.length}, Folders=${Array.from(folders).join(',')}`,
     };
   } catch (error: any) {
     return {
       reason: 'RETRIEVAL_ERROR',
       context: '',
       usedChunks: 0,
+      usedFolders: [],
       debug: String(error?.message || error || 'retrieval error').slice(0, 500),
     };
   }

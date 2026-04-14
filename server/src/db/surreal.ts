@@ -12,6 +12,7 @@ interface SurrealDocumentInput {
   id: string;
   scope: string;
   userId: number;
+  folderName: string;
   originalName: string;
   mimeType: string;
   size: number;
@@ -24,6 +25,7 @@ interface SurrealChunkInput {
   docId: string;
   scope: string;
   userId: number;
+  folderName: string;
   chunkIndex: number;
   content: string;
   uploadedAtIso: string;
@@ -32,6 +34,7 @@ interface SurrealChunkInput {
 export interface SurrealEmbeddedChunk {
   id: string;
   doc_id: string;
+  folder_name: string;
   content: string;
   embedding: number[];
   chunk_index: number;
@@ -186,6 +189,7 @@ export const upsertFileDocument = async (input: SurrealDocumentInput): Promise<v
 UPSERT ${input.id} CONTENT {
     scope: '${escapeSqlString(input.scope)}',
     user_id: ${input.userId},
+    folder_name: '${escapeSqlString(input.folderName)}',
     original_name: '${escapeSqlString(input.originalName)}',
     mimetype: '${escapeSqlString(input.mimeType)}',
     size: ${input.size},
@@ -230,6 +234,7 @@ export const upsertFileChunks = async (chunks: SurrealChunkInput[]): Promise<voi
       doc_id: '${escapeSqlString(chunk.docId)}',
       scope: '${escapeSqlString(chunk.scope)}',
       user_id: ${chunk.userId},
+      folder_name: '${escapeSqlString(chunk.folderName)}',
       chunk_index: ${chunk.chunkIndex},
       content: '${escapeSqlString(chunk.content)}',
       content_length: ${chunk.content.length},
@@ -318,7 +323,7 @@ export const countDocumentsByScope = async (scope: string, userId: number): Prom
 
 export const listEmbeddedChunksByScope = async (scope: string, userId: number, limit = 400): Promise<SurrealEmbeddedChunk[]> => {
   const token = await ensureToken();
-  const sql = buildSqlWithNamespace(`SELECT id, doc_id, content, embedding, chunk_index
+  const sql = buildSqlWithNamespace(`SELECT id, doc_id, folder_name, content, embedding, chunk_index
                FROM filechunk
                WHERE scope = '${escapeSqlString(scope)}'
                  AND user_id = ${userId}
@@ -337,6 +342,7 @@ export const listEmbeddedChunksByScope = async (scope: string, userId: number, l
     .map((row: any) => ({
       id: String(row.id),
       doc_id: String(row.doc_id),
+      folder_name: String(row.folder_name || 'Лекции'),
       content: String(row.content || ''),
       embedding: (row.embedding as any[]).map((v) => Number(v)).filter((v) => Number.isFinite(v)),
       chunk_index: Number(row.chunk_index || 0),

@@ -26,6 +26,19 @@ const withOwnershipFilter = (baseQuery: string): string => {
   return sharedMode ? baseQuery : `${baseQuery} AND user_id = $2`;
 };
 
+const normalizeFolderName = (value: unknown): string => {
+  if (typeof value !== 'string') {
+    return 'Лекции';
+  }
+
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  if (!normalized) {
+    return 'Лекции';
+  }
+
+  return normalized.slice(0, 120);
+};
+
 export const uploadFile = async (req: Request, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ error: 'Файл не загружен' });
@@ -33,6 +46,7 @@ export const uploadFile = async (req: Request, res: Response) => {
 
   const { originalname, mimetype, buffer, size } = req.file;
   const userId = req.user!.id;
+  const folderName = normalizeFolderName(req.body?.folderName);
 
 if (!ALLOWED_MIME_TYPES.has(mimetype)) {
     return res.status(400).json({ error: 'Допустимы только DOCX файлы' });
@@ -69,6 +83,7 @@ if (!ALLOWED_MIME_TYPES.has(mimetype)) {
       id: surrealDocumentId,
       scope,
       userId,
+      folderName,
       originalName: originalname,
       mimeType: mimetype,
       size,
@@ -81,6 +96,7 @@ if (!ALLOWED_MIME_TYPES.has(mimetype)) {
       docId: surrealDocumentId,
       scope,
       userId,
+      folderName,
       chunkIndex: chunk.index,
       content: chunk.content,
       uploadedAtIso: uploadedAt.toISOString(),
@@ -90,10 +106,10 @@ if (!ALLOWED_MIME_TYPES.has(mimetype)) {
 
     try {
       const result = await query(
-        `INSERT INTO files (user_id, original_name, filename, mimetype, size, data, surreal_doc_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO files (user_id, original_name, filename, mimetype, size, data, surreal_doc_id, folder_name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING id`,
-        [userId, originalname, originalname, mimetype, size, buffer, surrealDocumentId]
+        [userId, originalname, originalname, mimetype, size, buffer, surrealDocumentId, folderName]
       );
 
       const chunkCount = await getChunkCountByDocumentId(surrealDocumentId);
@@ -141,9 +157,11 @@ export const getFiles = async (req: Request, res: Response) => {
     const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';
     const sql = sharedMode
       ? `SELECT id, original_name, size, uploaded_at, (surreal_doc_id IS NOT NULL) as indexed_in_surreal
+        , folder_name
          FROM files
          ORDER BY uploaded_at DESC`
       : `SELECT id, original_name, size, uploaded_at, (surreal_doc_id IS NOT NULL) as indexed_in_surreal
+        , folder_name
          FROM files
          WHERE user_id = $1
          ORDER BY uploaded_at DESC`;

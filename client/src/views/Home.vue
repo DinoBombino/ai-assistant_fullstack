@@ -65,6 +65,19 @@ const sendMessage = async () => {
   }
 };
 
+const handleComposerKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    void sendMessage();
+  }
+};
+
+const autoResizeComposer = (event: Event) => {
+  const target = event.target as HTMLTextAreaElement;
+  target.style.height = 'auto';
+  target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
+};
+
 const openFullscreen = () => {
   showFullscreenModal.value = true;
 };
@@ -213,8 +226,8 @@ const cancelRenameChat = () => {
       </div>
 
       <div class="composer-wrap">
-        <input v-model="userInput" type="text" class="form-control" placeholder="Напишите сообщение..."
-          @keyup.enter="sendMessage" />
+        <textarea v-model="userInput" class="form-control composer-input" placeholder="Напишите сообщение..." rows="1"
+          @keydown="handleComposerKeydown" @input="autoResizeComposer"></textarea>
         <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading">Отправить</button>
       </div>
     </section>
@@ -238,8 +251,8 @@ const cancelRenameChat = () => {
               </div>
             </div>
             <div class="composer-wrap mt-3">
-              <input v-model="userInput" type="text" class="form-control" placeholder="Напишите сообщение..."
-                @keyup.enter="sendMessage" />
+              <textarea v-model="userInput" class="form-control composer-input" placeholder="Напишите сообщение..."
+                rows="1" @keydown="handleComposerKeydown" @input="autoResizeComposer"></textarea>
               <button class="btn btn-primary" @click="sendMessage" :disabled="isLoading">Отправить</button>
             </div>
           </div>
@@ -259,7 +272,7 @@ const cancelRenameChat = () => {
   height: calc(100vh - 56px);
   display: grid;
   grid-template-columns: 280px 1fr;
-  /* overflow: hidden;Чтобы убрать полоску скроллбара */
+  overflow: hidden;
 }
 
 .chat-sidebar {
@@ -267,6 +280,7 @@ const cancelRenameChat = () => {
   border-right: 1px solid var(--border);
   padding: 0.9rem;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .sidebar-title {
@@ -296,6 +310,7 @@ const cancelRenameChat = () => {
   align-items: center;
   gap: 0.25rem;
   border-radius: 10px;
+  min-width: 0;
 }
 
 .session-item.active { background: #e4e7ec; }
@@ -303,11 +318,18 @@ const cancelRenameChat = () => {
 .session-main {
   flex: 1;
   border: 0;
+  min-width: 0;
+  overflow: hidden;
   background: transparent;
   text-align: left;
   padding: 0.5rem 0.55rem;
   border-radius: 10px;
   color: #20242c;
+}
+
+.session-main .text-truncate {
+  display: block;
+  max-width: 100%;
 }
 
 .session-main:hover { background: #e9ebef; }
@@ -337,6 +359,7 @@ const cancelRenameChat = () => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 .chat-header {
@@ -361,6 +384,7 @@ const cancelRenameChat = () => {
 .chat-stream {
   flex: 1;
   overflow-y: auto;
+  min-height: 0;
   padding: 0 1.5rem 1rem;
 }
 
@@ -423,17 +447,26 @@ const cancelRenameChat = () => {
 }
 
 .composer-wrap {
-  position: sticky;
-  bottom: 0;
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 0.6rem;
-  padding: 0.85rem 1.5rem 1rem;
+  align-items: end;
+  padding: 0.7rem 1.5rem 1rem;
+  margin: 0 1.5rem 0.7rem;
   background: linear-gradient(to top, #f7f7f8 72%, rgba(247, 247, 248, 0));
+  border-radius: 12px;
 }
 
 .composer-wrap .form-control {
   background: #fff;
+}
+
+.composer-input {
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.4;
+  min-height: 44px;
+  max-height: 180px;
 }
 
 .fullscreen-stream {
@@ -460,6 +493,11 @@ const cancelRenameChat = () => {
   .composer-wrap {
     padding-left: 0.85rem;
     padding-right: 0.85rem;
+  }
+  
+  .composer-wrap {
+    margin-left: 0.85rem;
+    margin-right: 0.85rem;
   }
 
     .composer-wrap {
