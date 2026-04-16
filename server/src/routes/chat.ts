@@ -18,11 +18,213 @@ interface ChatRequest {
   role?: string;
 }
 
+type ChatHistoryMessage = {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+};
+
+type HintStage = 1 | 2 | 3;
+
 // Вспомогательная функция для преобразования sessionId в число
 const parseSessionId = (sessionId: any): number | undefined => {
   if (sessionId === undefined || sessionId === null) return undefined;
   const num = Number(sessionId);
   return isNaN(num) ? undefined : num;
+};
+
+const ESCALATION_REQUEST_PATTERNS = [
+  /ещ[её]\s+подсказк/i,
+  /подробн/i,
+  /конкретн/i,
+  /следующ(ий|ая|ее)\s+шаг/i,
+  /давай\s+прям/i,
+  /покажи\s+псевдокод/i,
+  /next\s+hint/i,
+  /more\s+details/i,
+];
+
+const NEW_TASK_PATTERNS = [
+  /нов(ая|ое|ый)\s+задач/i,
+  /другая\s+задач/i,
+  /нов(ый|ое)\s+вопрос/i,
+  /перейд(е|ё)м\s+к\s+другой/i,
+  /следующ(ая|ий)\s+задач/i,
+  /^\s*условие\s*:/i,
+  /формат\s+ввода/i,
+  /формат\s+вывода/i,
+  /(напиши|написать|реализуй|реализовать)\s+программ/i,
+  /реши\s+задач/i,
+];
+
+const FOLLOW_UP_PATTERNS = [
+  /не\s+понима/i,
+  /объясн/i,
+  /подробн/i,
+  /ещ[её]/i,
+  /поподробнее/i,
+  /можешь/i,
+  /как\s+решить/i,
+  /псевдокод/i,
+];
+
+const asksForEscalation = (message: string): boolean => {
+  const normalized = message.trim();
+  return ESCALATION_REQUEST_PATTERNS.some((pattern) => pattern.test(normalized));
+};
+
+const isNewTaskMessage = (message: string): boolean => {
+  const normalized = message.trim();
+  return NEW_TASK_PATTERNS.some((pattern) => pattern.test(normalized));
+};
+
+const isFollowUpMessage = (message: string): boolean => {
+  const normalized = message.trim();
+  return FOLLOW_UP_PATTERNS.some((pattern) => pattern.test(normalized));
+};
+
+const extractKeywords = (message: string): string[] => {
+  return message
+    .toLowerCase()
+    .replace(/[^a-zа-яё0-9\s]/gi, ' ')
+    .split(/\s+/)
+    .filter((token) => token.length >= 3);
+};
+
+const hasSubstantialTopicShift = (previousMessage: string, nextMessage: string): boolean => {
+  const prevTokens = extractKeywords(previousMessage);
+  const nextTokens = extractKeywords(nextMessage);
+
+  if (prevTokens.length < 3 || nextTokens.length < 3) {
+    return false;
+  }
+
+  const prevSet = new Set(prevTokens);
+  const nextSet = new Set(nextTokens);
+  const overlap = [...nextSet].filter((token) => prevSet.has(token)).length;
+  const overlapRatio = overlap / nextSet.size;
+
+  return overlapRatio < 0.2;
+};
+
+const startsLikelyNewQuestion = (message: string): boolean => {
+  return /^\s*(что|как|почему|зачем|где|когда|напиши|написать|реализуй|реализовать|условие)\b/i.test(message.trim());
+};
+
+const isNewTaskBoundary = (previousUserMessage: string | null, currentUserMessage: string): boolean => {
+  if (isNewTaskMessage(currentUserMessage)) {
+    return true;
+  }
+
+  if (!previousUserMessage) {
+    return false;
+  }
+
+  if (asksForEscalation(currentUserMessage) || isFollowUpMessage(currentUserMessage)) {
+    return false;
+  }
+
+  return hasSubstantialTopicShift(previousUserMessage, currentUserMessage) && startsLikelyNewQuestion(currentUserMessage);
+};
+
+const calculateCurrentHintStage = (history: ChatHistoryMessage[], currentUserMessage: string): HintStage => {
+  let stage: HintStage = 1;
+  let previousUserMessage: string | null = null;
+
+  for (let i = 0; i < history.length; i += 1) {
+    const message = history[i];
+    if (message.role !== 'user') continue;
+
+    if (isNewTaskBoundary(previousUserMessage, message.content)) {
+      stage = 1;
+    } else if (asksForEscalation(message.content) && stage < 3) {
+      stage = (stage + 1) as HintStage;
+    }
+
+    previousUserMessage = message.content;
+  }
+
+  if (isNewTaskBoundary(previousUserMessage, currentUserMessage)) {
+    return 1;
+  }
+
+  if (asksForEscalation(currentUserMessage) && stage < 3) {
+    return (stage + 1) as HintStage;
+  }
+
+  return stage;
+};
+
+const createHintStageInstruction = (stage: HintStage): string => {
+  const stageRules = [
+    'Детерминированное состояние этапа подсказки для ТЕКУЩЕГО ответа:',
+    `- Текущий этап помощи: ${stage}.`,
+    '- Это состояние является приоритетным и обязательным для данного ответа.',
+    '- Запрещено переходить на более сильный этап без явного запроса пользователя внутри этой же задачи.',
+  ];
+
+  if (stage === 1) {
+    stageRules.push(
+      '- Этап 1: только короткий намёк (1–2 предложения) без шагов алгоритма.',
+      '- Этап 1: запрещены псевдокод, нумерованные шаги, детальный план и готовые формулы решения.',
+    );
+  } else if (stage === 2) {
+    stageRules.push(
+      '- Этап 2: средняя подсказка (3–6 предложений), но без псевдокода.',
+      '- Этап 2: запрещены заголовок «Псевдокод» и пошаговый нумерованный алгоритм.',
+    );
+  } else {
+    stageRules.push('- Этап 3: дайте псевдокод строго в требуемом формате из системного промта.');
+  }
+
+  return stageRules.join('\n');
+};
+
+const USER_MESSAGE_TUTORING_REMINDER = 'Напоминание ассистенту: ты учебный помощник, не пишешь готовый код и не даёшь компилируемое решение; помогаешь обучающими подсказками по этапам.';
+
+const withTutoringReminder = (userMessage: string): string => {
+  return `${userMessage}\n\n${USER_MESSAGE_TUTORING_REMINDER}`;
+};
+
+const containsCodeLikeSolution = (response: string): boolean => {
+  const codeLikePatterns = [
+    /#include\s*</i,
+    /\busing\s+namespace\b/i,
+    /\bint\s+main\s*\(/i,
+    /\bpublic\s+static\s+void\s+main\s*\(/i,
+    /\bdef\s+\w+\s*\(/i,
+    /```[\s\S]*```/m,
+  ];
+
+  if (codeLikePatterns.some((pattern) => pattern.test(response))) {
+    return true;
+  }
+
+  const lines = response.split('\n').map((line) => line.trim());
+  const codeLikeLines = lines.filter((line) =>
+    /[{};]/.test(line) &&
+    /(\bif\b|\belse\b|\bwhile\b|\bfor\b|\breturn\b|=)/i.test(line)
+  ).length;
+
+  return codeLikeLines >= 3;
+};
+
+const violatesHintStage = (response: string, stage: HintStage): boolean => {
+  const hasPseudocodeHeader = /псевдокод/i.test(response);
+  const numberedItems = response.match(/^\s*\d+[.)]\s+/gm)?.length ?? 0;
+
+  if (containsCodeLikeSolution(response)) {
+    return true;
+  }
+
+  if (stage === 1) {
+    return hasPseudocodeHeader || numberedItems >= 2;
+  }
+
+  if (stage === 2) {
+    return hasPseudocodeHeader;
+  }
+
+  return false;
 };
 
 // Функция для создания системного промпта
@@ -50,12 +252,28 @@ const createSystemPrompt = (options: {
 4. **Не переходите** к следующему, более сильному уровню подсказки, если ученик явно не просит об этом. Явный запрос — фразы вроде «объясни подробнее», «ещё подсказка», «покажи следующую подсказку», «подскажи прямо» и т.п.
 5. **При переходе между разными задачами** (если ученик явно сообщает о новой задаче, присылает другой текст задачи или существенно другой фрагмент кода, или контент запроса явно изменился) вы **обязательно** сбрасываете внутреннее состояние подсказок и начинаете заново с самого первого, лёгкого направления. Не продолжайте уровень подсказок, на котором вы остановились для предыдущей задачи.
 6. Промт должен быть универсальным — **не включайте конкретные учебные задачи** в сам промт; ассистент адаптирует подсказки под конкретный запрос ученика.
+7. **Никогда не предлагайте написать/показать готовую реализацию в коде** («могу дать код», «давай реализуем в C++», и т.п.). Вместо этого предлагайте следующий учебный шаг: намёк, разбор ошибки, тест-кейс или псевдокод по правилам этапа.
+
+
+Управление этапами подсказок (обязательно, даже в длинном диалоге):
+- Отслеживайте этап помощи по истории текущей задачи и не «забывайте» прогрессию уровней.
+- Считайте, что этап хранится в контексте чата: определяйте его по последнему вашему ответу в рамках той же задачи.
+- Переходите на следующий этап только по явному запросу ученика («ещё подсказка», «подробнее», «следующий шаг», «давай конкретнее» и т.п.).
+- Если явного запроса нет — оставайтесь на текущем этапе или мягко переформулируйте его, не усиливая помощь.
+- Сбрасывайте этап на первый только при новой задаче (новое условие/другой код/явный переход к другой теме).
 
 Внутренняя последовательность помощи (не обозначаемая в ответе):
-- Первый шаг: короткое направление (1–2 предложения), которое ориентирует мысль ученика, но не раскрывает алгоритм.
-- При явной просьбе ученика дать «ещё» — более детальное направление (3–6 предложений или короткий структурный псевдокод), всё ещё без полного алгоритма.
-- При повторной явной просьбе — подробный пошаговый план или детализированный псевдокод, который однозначно ведёт к решению, но **не** является готовым компилируемым кодом.
-- Если ученик после этого просит «готовое решение» — снова отказывайте и объясните, почему (нужно учиться), предложив повторить шаги или пройти тесты.
+- Этап 1 (лёгкий намёк): короткое направление (1–2 предложения), которое ориентирует мысль ученика, но не раскрывает алгоритм.
+- Этап 2 (средний намёк): более детальное направление (3–6 предложений), с упором на идею и ключевые проверки, но без полного алгоритма.
+- Этап 3 (псевдокод): детализированный пошаговый псевдокод, который однозначно ведёт к решению, но **не** является готовым компилируемым кодом.
+- Если ученик после этапа 3 просит «готовое решение» — снова отказывайте и объясняйте, почему (нужно учиться), предложив разобрать шаги/тесты.
+
+Формат этапа 3 (псевдокод обязателен именно в таком виде):
+- Давайте блок с заголовком «Псевдокод» и нумерованными шагами.
+- Каждый шаг должен быть абстрактным (описание действий), без синтаксиса конкретного языка.
+- Разрешены только универсальные конструкции: «ввод», «если», «иначе», «пока/для каждого», «вычислить», «вывести».
+- Запрещено использовать языковые детали (типы, импорты, точные названия библиотек, сигнатуры функций, компилируемые фрагменты).
+- После псевдокода добавляйте 1–2 коротких теста в формате «вход → ожидаемый результат».
 
 Работа с присланным кодом ученика:
 - Сначала проанализируйте код в контексте теории из лекции.
@@ -223,11 +441,17 @@ router.post('/', authMiddleware, tokenLimiter(), async (req: Request, res: Respo
         actualSessionId = newSession.id;
     }
 
+    // Получаем историю до сохранения текущего сообщения
+    const history = await chatQueries.getSessionMessages(actualSessionId, 20);
+    const hintStage = calculateCurrentHintStage(history as ChatHistoryMessage[], message);
+    const hintStageInstruction = createHintStageInstruction(hintStage);
     // Сохраняем сообщение пользователя
     await chatQueries.addMessage(actualSessionId, 'user', message);
 
-    // Получаем историю для контекста (последние 10 сообщений без текущего)
-    const history = await chatQueries.getSessionMessages(actualSessionId, 20);
+    const historyWithCurrent: ChatHistoryMessage[] = [
+      ...(history as ChatHistoryMessage[]),
+      { role: 'user', content: message },
+    ];
     
     // Определяем режим (chat или action для JSON)
     const mode = /json/i.test(message) ? 'action' as const : 'chat' as const;
@@ -239,7 +463,7 @@ router.post('/', authMiddleware, tokenLimiter(), async (req: Request, res: Respo
       mode
     });
 
-    const userHistory = history
+    const userHistory = historyWithCurrent
       .filter((msg: any) => msg.role === 'user')
       .map((msg: any) => msg.content)
       .join('\n');
@@ -279,6 +503,7 @@ router.post('/', authMiddleware, tokenLimiter(), async (req: Request, res: Respo
 
     const mergedSystemPrompt = [
       systemPrompt,
+      hintStageInstruction,
       dockInstruction,
       retrievalInstruction,
     ]
@@ -287,6 +512,7 @@ router.post('/', authMiddleware, tokenLimiter(), async (req: Request, res: Respo
 
     console.log('История сообщений для сессии', actualSessionId, ':', history.length, 'сообщений');
     console.log('RAG status:', retrieval.reason, retrieval.debug);
+    console.log('Hint stage:', hintStage);
     
     // Подготавливаем сообщения для AI
     const aiMessages = [
@@ -294,21 +520,46 @@ router.post('/', authMiddleware, tokenLimiter(), async (req: Request, res: Respo
         role: 'system' as const,
         content: mergedSystemPrompt
       },
-      ...history.map((msg: any) => ({
-        role: msg.role as 'user' | 'assistant' | 'system',
-        content: msg.content
-      }))
+      ...historyWithCurrent.map((msg: any) => {
+        const role = msg.role as 'user' | 'assistant' | 'system';
+        if (role === 'user') {
+          return {
+            role,
+            content: withTutoringReminder(msg.content),
+          };
+        }
+
+        return {
+          role,
+          content: msg.content,
+        };
+      })
     ];
 
     console.log('Отправляем в AI', aiMessages.length, 'сообщений');
 
     // Получаем ответ от AI
-    const aiResponse = await aiService.chat(aiMessages, {
+    let aiResponse = await aiService.chat(aiMessages, {
       model,
       maxTokens: maxTokens || parseInt(process.env.DEFAULT_MAX_TOKENS || '1024'),
       temperature,
       systemPrompt: mergedSystemPrompt
     });
+
+    if (violatesHintStage(aiResponse.content, hintStage)) {
+      const correctionInstruction = [
+        'Предыдущий ответ нарушил ограничение этапа подсказки.',
+        `Сформируй ответ заново строго для этапа ${hintStage}.`,
+        'Не упоминай факт исправления и не ссылайся на предыдущее нарушение.',
+      ].join('\n');
+
+      aiResponse = await aiService.chat(aiMessages, {
+        model,
+        maxTokens: maxTokens || parseInt(process.env.DEFAULT_MAX_TOKENS || '1024'),
+        temperature,
+        systemPrompt: `${mergedSystemPrompt}\n\n${correctionInstruction}`,
+      });
+    }
 
     // Сохраняем ответ ассистента
     await chatQueries.addMessage(
