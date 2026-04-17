@@ -1,0 +1,7 @@
+FROM surrealdb/surrealdb:latest
+
+USER root
+
+EXPOSE 8000
+
+CMD ["start", "--log", "info", "rocksdb:/data/surreal"]
