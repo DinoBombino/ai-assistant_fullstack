@@ -3,42 +3,44 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/client
 
-# Копируем только package*.json для кэширования зависимостей
 COPY client/package*.json ./
 RUN npm ci
 
-# Копируем исходники фронта и собираем
 COPY client/ ./
 RUN npm run build
 
-# === Этап 2: Сборка бэкенда ===
+# === Этап 2: Сборка бэкенда (с типами) ===
 FROM node:20-alpine AS backend-builder
 
 WORKDIR /app/server
 
+# Копируем package.json и устанавливаем ВСЕ зависимости (включая dev)
 COPY server/package*.json ./
-RUN npm ci --only=production
+RUN npm ci
 
+# Копируем исходники и компилируем TypeScript
 COPY server/ ./
 RUN npx tsc
 
-# === Этап 3: Финальный образ ===
+# === Этап 3: Финальный образ (только production) ===
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Копируем собранный бэкенд
+# Копируем package.json для production зависимостей
+COPY server/package*.json ./
+
+# Устанавливаем ТОЛЬКО production зависимости
+RUN npm ci --omit=dev
+
+# Копируем скомпилированный бэкенд
 COPY --from=backend-builder /app/server/dist ./dist
-COPY --from=backend-builder /app/server/node_modules ./node_modules
-COPY --from=backend-builder /app/server/package*.json ./
 
 # Копируем собранную статику фронта
 COPY --from=frontend-builder /app/client/dist ./public
 
-# Переменная для порта (Amvera может переопределять)
 ENV PORT=80
 
 EXPOSE 80
 
-# Запуск сервера
 CMD ["node", "dist/index.js"]
