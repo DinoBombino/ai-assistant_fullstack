@@ -66,13 +66,28 @@ app.get('/api/health/surreal', async (req, res) => {
   });
 });
 
-// Обслуживание статики фронтенда (если есть)
+// // Обслуживание статики фронтенда (если есть) //local develop //оставить на вский для локалки
+// if (process.env.NODE_ENV === 'production') {
+//   const clientDistPath = path.join(__dirname, '../../client/dist');
+//   app.use(express.static(clientDistPath));
+//   app.get('*', (req, res) => {
+//     res.sendFile(path.join(clientDistPath, 'index.html'));
+//   });
+// }
+
+// Обслуживание статики фронтенда
 if (process.env.NODE_ENV === 'production') {
-  const clientDistPath = path.join(__dirname, '../../client/dist');
+  // В Docker: статика лежит в ./public относительно /app/dist
+  const clientDistPath = path.join(__dirname, '../public');
   app.use(express.static(clientDistPath));
   app.get('*', (req, res) => {
     res.sendFile(path.join(clientDistPath, 'index.html'));
   });
+} else {
+  // В разработке: Vite dev server на localhost:3000 (CORS)
+  // Или можно раскомментировать для раздачи из client/dist
+  // const clientDistPath = path.join(__dirname, '../../client/dist');
+  // app.use(express.static(clientDistPath));
 }
 
 // 404 handler
