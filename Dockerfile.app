@@ -1,5 +1,5 @@
 # === Этап 1: Сборка фронтенда (Vue + Vite) ===
-FROM node:18-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/client
 
@@ -12,7 +12,7 @@ COPY client/ ./
 RUN npm run build
 
 # === Этап 2: Сборка бэкенда ===
-FROM node:18-alpine AS backend-builder
+FROM node:20-alpine AS backend-builder
 
 WORKDIR /app/server
 
@@ -23,7 +23,7 @@ COPY server/ ./
 RUN npx tsc
 
 # === Этап 3: Финальный образ ===
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
