@@ -73,11 +73,6 @@ watch(
               {{ isLoading ? 'Загрузка...' : isLogin ? 'Войти' : 'Зарегистрироваться' }}
             </button>
           </form>
-          <div class="text-center mt-3">
-            <button class="btn btn-link auth-toggle" @click="isLogin = !isLogin">
-              {{ isLogin ? 'Нет аккаунта? Зарегистрируйтесь' : 'Уже есть аккаунт? Войдите' }}
-            </button>
-          </div>
         </div>
       </div>
     </div>
