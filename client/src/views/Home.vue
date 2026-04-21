@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed } from 'vue';
+import { ref, onMounted, nextTick, computed, watch } from 'vue';
 import { parseMarkdown } from '../utils/markdown';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useChatStore } from '../stores/useChatStore';
@@ -44,24 +44,54 @@ const ensureActiveSession = async () => {
   // if (!chat.activeSessionId) await chat.createSession('Новый чат');
 };
 
-const scrollToBottom = async () => {
-  await nextTick(() => {
+const scrollToBottom = () => {
+  nextTick(() => {
     const target = showFullscreenModal.value ? chatWindowModal.value : chatWindow.value;
-    if (target) target.scrollTop = target.scrollHeight;
+    if (target) {
+      target.scrollTop = target.scrollHeight;
+    }
   });
 };
 
+watch(uiMessages, () => {
+  scrollToBottom();
+}, { deep: true });
+
+const resetTextareaHeight = () => {
+  const textareas = document.querySelectorAll('.composer-input') as NodeListOf<HTMLTextAreaElement>;
+  textareas.forEach(ta => {
+    ta.style.height = 'auto';
+  });
+};
+
+// const sendMessage = async () => {
+//   if (!userInput.value.trim()) return;
+
+//   try {
+//     await ensureActiveSession();
+//     await chat.sendMessage(userInput.value);
+//   } catch (error) {
+//     console.error('Send message error:', error);
+//   } finally {
+//     userInput.value = '';
+//     // await scrollToBottom();
+//     userInput.value = '';
+//     resetTextareaHeight();
+//   }
+// };
+
 const sendMessage = async () => {
-  if (!userInput.value.trim()) return;
+  const message = userInput.value.trim();
+  if (!message) return;
+
+  userInput.value = '';
+  resetTextareaHeight();
 
   try {
     await ensureActiveSession();
-    await chat.sendMessage(userInput.value);
+    await chat.sendMessage(message);
   } catch (error) {
     console.error('Send message error:', error);
-  } finally {
-    userInput.value = '';
-    await scrollToBottom();
   }
 };
 

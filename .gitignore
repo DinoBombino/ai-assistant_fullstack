@@ -21,3 +21,4 @@ yarn-error.log*
 structure.txt
 cookie.txt
 secrets.txt
+.nvmrc

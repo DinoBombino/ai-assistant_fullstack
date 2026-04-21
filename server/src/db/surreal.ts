@@ -296,18 +296,18 @@ export const countDocumentsByScope = async (scope: string, userId: number): Prom
   );
   
   // логи
-  console.log('countDocumentsByScope: scope=', scope, 'userId=', userId);
-  console.log('countDocumentsByScope: SQL=', sql);
+  // console.log('countDocumentsByScope: scope=', scope, 'userId=', userId);
+  // console.log('countDocumentsByScope: SQL=', sql);
   
   const payload = await execSql(sql, token);
   
   // логи
-  console.log('countDocumentsByScope: payload=', payload);
+  // console.log('countDocumentsByScope: payload=', payload);
   
   const parsed = parseResult(payload);
   
   // логи
-  console.log('countDocumentsByScope: parsed=', parsed);
+  // console.log('countDocumentsByScope: parsed=', parsed);
   
   // Проверка на число
   if (typeof parsed === 'number') {
