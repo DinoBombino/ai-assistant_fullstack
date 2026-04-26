@@ -68,8 +68,8 @@ if (!ALLOWED_MIME_TYPES.has(mimetype)) {
     return res.status(422).json({ error: 'Файл не содержит извлекаемого текста' });
   }
 
-  // const scope = resolveFileScope(userId);
-  const scope = 'shared'; // Всегда единый scope для векторного поиска
+  const scope = resolveFileScope(userId);
+  // const scope = 'shared'; // Всегда единый scope для векторного поиска
   const surrealDocumentId = buildSurrealDocumentId(scope);
   const contentDigest = buildContentDigest(buffer);
   const uploadedAt = new Date();
