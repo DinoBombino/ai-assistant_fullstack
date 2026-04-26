@@ -291,9 +291,18 @@ export const getChunkCountByDocumentId = async (documentId: string): Promise<num
 
 export const countDocumentsByScope = async (scope: string, userId: number): Promise<number> => {
   const token = await ensureToken();
+
+  // Если shared режим, не фильтруем по user_id
+  const isSharedMode = scope === 'shared';
+  const userFilter = isSharedMode ? '' : ` AND user_id = ${userId}`;
+
   const sql = buildSqlWithNamespace(
-    `RETURN count((SELECT VALUE id FROM filedoc WHERE scope = '${escapeSqlString(scope)}' AND user_id = ${userId}));`
+    `RETURN count((SELECT VALUE id FROM filedoc WHERE scope = '${escapeSqlString(scope)}'${userFilter}));`
   );
+
+  // const sql = buildSqlWithNamespace(
+  //   `RETURN count((SELECT VALUE id FROM filedoc WHERE scope = '${escapeSqlString(scope)}' AND user_id = ${userId}));`
+  // );
   
   // логи
   // console.log('countDocumentsByScope: scope=', scope, 'userId=', userId);
@@ -323,13 +332,25 @@ export const countDocumentsByScope = async (scope: string, userId: number): Prom
 
 export const listEmbeddedChunksByScope = async (scope: string, userId: number, limit = 400): Promise<SurrealEmbeddedChunk[]> => {
   const token = await ensureToken();
-  const sql = buildSqlWithNamespace(`SELECT id, doc_id, folder_name, content, embedding, chunk_index
+
+  // Если shared режим, не фильтруем по user_id
+  const isSharedMode = scope === 'shared';
+  const userFilter = isSharedMode ? '' : ` AND user_id = ${userId}`;
+
+const sql = buildSqlWithNamespace(`SELECT id, doc_id, folder_name, content, embedding, chunk_index
                FROM filechunk
-               WHERE scope = '${escapeSqlString(scope)}'
-                 AND user_id = ${userId}
+               WHERE scope = '${escapeSqlString(scope)}'${userFilter}
                  AND embedding_status = 'ready'
                  AND embedding != NONE
                LIMIT ${Math.max(1, Math.floor(limit))};`);
+
+  // const sql = buildSqlWithNamespace(`SELECT id, doc_id, folder_name, content, embedding, chunk_index
+  //              FROM filechunk
+  //              WHERE scope = '${escapeSqlString(scope)}'
+  //                AND user_id = ${userId}
+  //                AND embedding_status = 'ready'
+  //                AND embedding != NONE
+  //              LIMIT ${Math.max(1, Math.floor(limit))};`);
   const payload = await execSql(sql, token);
   const parsed = parseResult(payload);
 
