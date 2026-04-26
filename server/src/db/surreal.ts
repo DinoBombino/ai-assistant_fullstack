@@ -323,11 +323,19 @@ export const countDocumentsByScope = async (scope: string, userId: number): Prom
 
 export const listEmbeddedChunksByScope = async (scope: string, userId: number, limit = 400): Promise<SurrealEmbeddedChunk[]> => {
   const token = await ensureToken();
+  //1 вариант (в комменте) это для более приватного поиска файлов, в будущем это пригодится, чтобы ученики двух шуол не видели и не работали по всем файлам ,а только по своим, но надо доработать логику
+  // const sql = buildSqlWithNamespace(`SELECT id, doc_id, folder_name, content, embedding, chunk_index
+  //              FROM filechunk
+  //              WHERE scope = '${escapeSqlString(scope)}'
+  //                AND user_id = ${userId}
+  //                AND embedding_status = 'ready'
+  //                AND embedding != NONE
+  //              LIMIT ${Math.max(1, Math.floor(limit))};`);
+  
+  //2 вариант позволяет всем пользователям работать по загруженным файлам
   const sql = buildSqlWithNamespace(`SELECT id, doc_id, folder_name, content, embedding, chunk_index
                FROM filechunk
-               WHERE scope = '${escapeSqlString(scope)}'
-                 AND user_id = ${userId}
-                 AND embedding_status = 'ready'
+               WHERE embedding_status = 'ready'
                  AND embedding != NONE
                LIMIT ${Math.max(1, Math.floor(limit))};`);
   const payload = await execSql(sql, token);
