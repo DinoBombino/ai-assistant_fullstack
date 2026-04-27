@@ -298,14 +298,6 @@ export const countDocumentsByScope = async (scope: string, userId: number): Prom
   const token = await ensureToken();
   const ownershipFilter = isSharedScope(scope) ? '' : ` AND user_id = ${userId}`;
 
-  // // Если shared режим, не фильтруем по user_id
-  // const isSharedMode = scope === 'shared';
-  // const userFilter = isSharedMode ? '' : ` AND user_id = ${userId}`;
-
-  // const sql = buildSqlWithNamespace(
-  //   `RETURN count((SELECT VALUE id FROM filedoc WHERE scope = '${escapeSqlString(scope)}'${userFilter}));`
-  // );
-
   const sql = buildSqlWithNamespace(
     // `RETURN count((SELECT VALUE id FROM filedoc WHERE scope = '${escapeSqlString(scope)}' AND user_id = ${userId}));`
     `RETURN count((SELECT VALUE id FROM filedoc WHERE scope = '${escapeSqlString(scope)}'${ownershipFilter}));`
@@ -343,13 +335,6 @@ export const listEmbeddedChunksByScope = async (scope: string, userId: number, l
   // Если shared режим, не фильтруем по user_id
   const isSharedMode = scope === 'shared';
   const userFilter = isSharedMode ? '' : ` AND user_id = ${userId}`;
-
-// const sql = buildSqlWithNamespace(`SELECT id, doc_id, folder_name, content, embedding, chunk_index
-//                FROM filechunk
-//                WHERE scope = '${escapeSqlString(scope)}'${userFilter}
-//                  AND embedding_status = 'ready'
-//                  AND embedding != NONE
-//                LIMIT ${Math.max(1, Math.floor(limit))};`);
 
   const ownershipFilter = isSharedScope(scope) ? '' : `AND user_id = ${userId}`;
     const sql = buildSqlWithNamespace(`SELECT id, doc_id, folder_name, content, embedding, chunk_index
