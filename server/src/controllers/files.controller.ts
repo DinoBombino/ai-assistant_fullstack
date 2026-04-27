@@ -22,7 +22,8 @@ import {
 import { embedChunksForDocument } from '../services/rag.service';
 
 const withOwnershipFilter = (baseQuery: string): string => {
-  const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';
+  // const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';
+  const sharedMode = String(process.env.FILES_SHARED_MODE || 'true').toLowerCase() === 'true';
   return sharedMode ? baseQuery : `${baseQuery} AND user_id = $2`;
 };
 
@@ -154,7 +155,8 @@ export const getFiles = async (req: Request, res: Response) => {
     // console.log('Данные файлов:', result.rows);
 
     ///
-    const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';
+    // const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';
+    const sharedMode = String(process.env.FILES_SHARED_MODE || 'true').toLowerCase() === 'true';
     const sql = sharedMode
       ? `SELECT id, original_name, size, uploaded_at, (surreal_doc_id IS NOT NULL) as indexed_in_surreal
         , folder_name
@@ -182,7 +184,8 @@ export const downloadFile = async (req: Request, res: Response) => {
   try {
     ///
     const sql = withOwnershipFilter('SELECT original_name, mimetype, data FROM files WHERE id = $1');
-    const params = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true'
+    // const params = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true'
+    const params = String(process.env.FILES_SHARED_MODE || 'true').toLowerCase() === 'true'
       ? [id]
       : [id, req.user!.id];
 
@@ -211,7 +214,8 @@ export const downloadFile = async (req: Request, res: Response) => {
 export const deleteFile = async (req: Request, res: Response) => {
   const { id } = req.params;
   ///
-  const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';  ///
+  // const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';  ///
+  const sharedMode = String(process.env.FILES_SHARED_MODE || 'true').toLowerCase() === 'true';  
   try {
     // const result = await query(
     //   `DELETE FROM files WHERE id = $1 AND user_id = $2 RETURNING id`,

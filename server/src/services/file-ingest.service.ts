@@ -96,7 +96,8 @@ export const chunkText = (text: string): TextChunk[] => {
 };
 
 export const resolveFileScope = (userId: number): string => {
-  const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';
+  // const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';
+  const sharedMode = String(process.env.FILES_SHARED_MODE || 'true').toLowerCase() === 'true';
   return sharedMode ? 'shared' : `user_${userId}`;
 };
 
