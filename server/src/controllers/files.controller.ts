@@ -22,7 +22,8 @@ import {
 import { embedChunksForDocument } from '../services/rag.service';
 
 const withOwnershipFilter = (baseQuery: string): string => {
-  const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';
+  // const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';
+  const sharedMode = String(process.env.FILES_SHARED_MODE || 'true').toLowerCase() === 'true';
   return sharedMode ? baseQuery : `${baseQuery} AND user_id = $2`;
 };
 
@@ -130,14 +131,10 @@ if (!ALLOWED_MIME_TYPES.has(mimetype)) {
       throw pgError;
     }
 
-
-///
   } catch (err: any) {
     console.error('Ошибка загрузки:', err);
     // res.status(500).json({ error: 'Ошибка сервера' });
-    ///
     return res.status(500).json({ error: 'Ошибка сохранения в базе данных' });
-    ///
   }
 };
 
@@ -155,7 +152,8 @@ export const getFiles = async (req: Request, res: Response) => {
     // console.log('Данные файлов:', result.rows);
 
     ///
-    const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';
+    // const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';
+    const sharedMode = String(process.env.FILES_SHARED_MODE || 'true').toLowerCase() === 'true';
     const sql = sharedMode
       ? `SELECT id, original_name, size, uploaded_at, (surreal_doc_id IS NOT NULL) as indexed_in_surreal
         , folder_name
@@ -168,7 +166,6 @@ export const getFiles = async (req: Request, res: Response) => {
          ORDER BY uploaded_at DESC`;
 
     const result = sharedMode ? await query(sql) : await query(sql, [req.user!.id]);
-///
     
     res.json({ files: result.rows });
   } catch (err) {
@@ -181,14 +178,14 @@ export const downloadFile = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
-    ///
     const sql = withOwnershipFilter('SELECT original_name, mimetype, data FROM files WHERE id = $1');
-    const params = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true'
+    // const params = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true'
+    const params = String(process.env.FILES_SHARED_MODE || 'true').toLowerCase() === 'true'
       ? [id]
       : [id, req.user!.id];
 
     const result = await query(sql, params);
-    ///
+
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Файл не найден' });
@@ -198,35 +195,25 @@ export const downloadFile = async (req: Request, res: Response) => {
     res.set('Content-Type', file.mimetype);
     res.set('Content-Disposition', `attachment; filename="${encodeURIComponent(file.original_name)}"`);
     // res.send(file.data);
-    ///
     return res.send(file.data);
-    ///
   } catch (err) {
     // res.status(500).json({ error: 'Ошибка сервера' });
-    ///
     return res.status(500).json({ error: 'Ошибка сервера' });
-    ///
   }
 };
 
 export const deleteFile = async (req: Request, res: Response) => {
   const { id } = req.params;
   ///
-  const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';  ///
+  // const sharedMode = String(process.env.FILES_SHARED_MODE || 'false').toLowerCase() === 'true';  ///
+  const sharedMode = String(process.env.FILES_SHARED_MODE || 'true').toLowerCase() === 'true';  
   try {
-    // const result = await query(
-    //   `DELETE FROM files WHERE id = $1 AND user_id = $2 RETURNING id`,
-    //   [id, req.user!.id]
-    // );
-    ///
     const selectSql = sharedMode
       ? `SELECT id, surreal_doc_id FROM files WHERE id = $1`
       : `SELECT id, surreal_doc_id FROM files WHERE id = $1 AND user_id = $2`;
     const selectParams = sharedMode ? [id] : [id, req.user!.id];
     const existing = await query(selectSql, selectParams);
-    ///
 
-    // if (result.rowCount === 0) {
     if (existing.rowCount === 0) {
       return res.status(404).json({ error: 'Файл не найден или нет прав' });
     }
@@ -246,12 +233,10 @@ export const deleteFile = async (req: Request, res: Response) => {
     await query(deleteSql, deleteParams);
 
     return res.json({ message: 'Файл удалён' });
-    ///
+
   } catch (err) {
     // res.status(500).json({ error: 'Ошибка сервера' });
-    ///
     console.error('Ошибка удаления файла:', err);
     return res.status(500).json({ error: 'Ошибка удаления файла' });
-    ///
   }
 };
