@@ -51,6 +51,12 @@ export const useChatStore = defineStore('chat', {
         });
         this.sessions = res.data.sessions || [];
 
+        if (this.sessions.length === 0) {
+          this.activeSessionId = null;
+          this.messages = [];
+          return;
+        }
+
         // Если нет активной сессии, попробуем выбрать первую
         if (!this.activeSessionId && this.sessions.length > 0) {
           this.activeSessionId = this.sessions[0].id;

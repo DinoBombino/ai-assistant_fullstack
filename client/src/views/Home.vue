@@ -20,6 +20,7 @@ const showFullscreenModal = ref(false);
 const isLoading = computed(() => chat.sending || chat.loadingMessages);
 const sessions = computed(() => chat.sessions);
 const activeSessionId = computed(() => chat.activeSessionId);
+const hasActiveChat = computed(() => !!chat.activeSessionId);
 
 // Сообщения для UI: приводим к формату { text, isUser }
 const uiMessages = computed(() =>
@@ -229,8 +230,14 @@ const cancelRenameChat = () => {
     <section class="chat-main">
       <div class="chat-header">
         <div>
-          <h1>{{ chat.activeSession?.title || 'Новый чат' }}</h1>
-          <p>Спросите что угодно — отвечу максимально понятно.</p>
+          <h1>{{ chat.activeSession?.title || 'Ваш ИИ-помощник' }}</h1>
+          <p>
+            {{
+              hasActiveChat
+                ? 'Спросите что угодно — отвечу максимально понятно.'
+                : 'Создайте новый чат или отправьте сообщение, и я начну помогать.'
+            }}
+          </p>
         </div>
         <button v-if="chat.activeSessionId" class="btn btn-outline-primary btn-sm" @click="openFullscreen">
           <i class="bi bi-arrows-fullscreen"></i>
@@ -239,8 +246,14 @@ const cancelRenameChat = () => {
 
       <div ref="chatWindow" class="chat-stream">
         <div v-if="uiMessages.length === 0" class="stream-empty">
-          <h4>Чем могу помочь?</h4>
-          <p>Введите запрос внизу, чтобы начать диалог.</p>
+          <h4>{{ hasActiveChat ? 'Чем могу помочь?' : 'Ваш ИИ-помощник' }}</h4>
+          <p>
+            {{
+              hasActiveChat
+                ? 'Введите запрос внизу, чтобы начать диалог.'
+                : 'У вас пока нет чатов. Нажмите «Новый чат» или просто отправьте первое сообщение.'
+            }}
+          </p>
         </div>
 
         <div v-for="(msg, index) in uiMessages" :key="index" :class="['msg-row', msg.isUser ? 'user' : 'assistant']">
