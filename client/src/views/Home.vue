@@ -31,6 +31,7 @@ const uiMessages = computed(() =>
 );
 
 onMounted(async () => {
+  chat.$reset(); //сброс истории сообщений
   await auth.loadUser();
   if (auth.user) {
     await chat.fetchSessions();
