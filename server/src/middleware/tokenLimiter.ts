@@ -10,6 +10,8 @@ const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'openai/gpt-4o-mini';
 
 // Known model context sizes (conservative estimates)
 const MODEL_MAX_CONTEXT: Record<string, number> = {
+  'minimax/minimax-m2.5:free': 64000,
+  'openai/gpt-5-mini': 128000,
   'openai/gpt-4o-mini': 128000,
   'openai/gpt-4o': 128000,
   'deepseek/deepseek-r1-0528:free': 64000,
